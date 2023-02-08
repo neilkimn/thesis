@@ -1,0 +1,17 @@
+name: thesis
+channels:
+  - pytorch
+  - nvidia
+dependencies:
+  - pip
+  - pytorch
+  - torchvision
+  - pytorch-cuda=11.6
+  - pip:
+      - black
+      - tensorboardX
+      - opencv-python
+      - torch-tb-profiler
+      - nvidia-pyindex
+      - nvidia-dali-cuda110
+      - cupy-cuda110
