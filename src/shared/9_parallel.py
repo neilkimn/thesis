@@ -13,8 +13,8 @@ import cupy as cp
 import argparse
 import os
 
-from dataset import CarDataset, SharedDataset
-from trainer import Trainer
+from shared.dataset import CarDataset, SharedDataset
+from shared.trainer import Trainer
 
 torch.manual_seed(0)
 INPUT_SIZE = 224
@@ -58,9 +58,6 @@ valid_transforms = transforms.Compose(
     ]
 )
 
-def start(shared_dataset):
-    shared_dataset.start()
-
 if __name__ == "__main__":
 
     """Initialise dataset"""
@@ -75,8 +72,7 @@ if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
     manager = mp.Manager()
     lock = mp.Lock()
-    #shared_tensors = manager.list()
-    #shared_accesses = manager.list()
+
     shared_tensors = list()
     shared_accesses = list()
 

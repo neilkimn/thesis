@@ -4,7 +4,7 @@ from torch.optim import lr_scheduler
 from torch.utils import data as D
 from torch.autograd import Variable
 
-from dataset import DatasetFromSubset
+from shared.dataset import DatasetFromSubset
 
 import os
 import time
