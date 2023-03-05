@@ -12,7 +12,7 @@ import random
 import os
 
 from shared.dataset import CarDataset
-from shared.trainer import Trainer
+from shared_queues.trainer import Trainer
 
 INPUT_SIZE = 224
 root = Path(os.environ["DATA_PATH"])

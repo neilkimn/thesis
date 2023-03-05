@@ -4,3 +4,4 @@ logs/*
 src/distributed_old/*
 */**/trace.json
 *.nsys-rep
+debug_data/*

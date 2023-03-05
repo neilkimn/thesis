@@ -74,6 +74,11 @@ valid_transforms = transforms.Compose(
     ]
 )
 
+class MyQueue(object):
+    def __init__(self, queue, qi):
+        self.queue = queue
+        self.qi = qi
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -90,7 +95,8 @@ def producer(loader, valid_loader, qs, device, args):
         for idx, (inputs, labels, indices) in enumerate(loader):
             inputs = Variable(inputs.to(device))
             labels = Variable(labels.to(device))
-            for q in qs:    
+            for qi, q in enumerate(qs):
+                print(f"Putting indices {indices[:2]} in queue {qi}")
                 q.put((idx, inputs, labels, epoch, "train", indices))
 
             if args.debug_data_dir:
@@ -126,23 +132,41 @@ def producer(loader, valid_loader, qs, device, args):
 
 def worker(q, model, args):
     if model.on_device == False:
+        pid = os.getpid()
+        print(f"{pid}\tTraining model: {model.name}")
         model.send_model()
         model.scheduler.step()
     
     while True:
         pid = os.getpid()
         idx, inputs, labels, epoch, batch_type, indices = q.get()
+        print(f"Fetched indices {indices[:2]} in queue {args.qi}")
         #print(f"{pid} queue size: {q.qsize()}")
+        if args.debug_data_dir:
+            debug_indices = Path(args.debug_data_dir) / model.name / f"epoch_{epoch}" / "indices.txt"
+            debug_indices.parent.mkdir(parents=True, exist_ok=True)
+
+        if args.debug_data_dir:
+            val_debug_indices = Path(args.debug_data_dir) / model.name / f"epoch_{epoch}" / "val_indices.txt"
+            val_debug_indices.parent.mkdir(parents=True, exist_ok=True)
         
         if batch_type == "train":
             model.forward(inputs, labels, idx, epoch, pid)
+            if args.debug_data_dir:
+                with open(debug_indices, "a") as f:
+                    f.write(" ".join(list(map(str, indices.tolist()))))
+                    f.write("\n")
         elif batch_type == "valid":
             model.validate(inputs, labels)
+            if args.debug_data_dir:
+                with open(val_debug_indices, "a") as f:
+                    f.write(" ".join(list(map(str, indices.tolist()))))
+                    f.write("\n")
         elif batch_type == "end":
             model.end_epoch(args, epoch)
             
         #print(f'pid {pid} Finished {idx}')
-        q.task_done()
+        #q.task_done()
 
 if __name__ == "__main__":
 
@@ -215,6 +239,7 @@ if __name__ == "__main__":
 
     _start = time.time()
     for i in range(args.num_processes):
+        args.qi = i
         p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args))).start()
 
     producers = []
