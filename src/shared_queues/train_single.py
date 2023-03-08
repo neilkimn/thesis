@@ -1,4 +1,4 @@
-import ads3 as ads3
+import ads3
 import torch
 import torch.backends.cudnn as cudnn
 import torchvision

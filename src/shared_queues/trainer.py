@@ -17,16 +17,13 @@ class ProcTrainer:
         self.model = model
         self.name = model.name
         self.on_device = False
+        self.log_name = self.name + f"_bs{args.batch_size}_{args.training_workers}tw_{args.validation_workers}vw_{args.prefetch_factor}pf"
 
         torch.manual_seed(self.args.seed)
 
         num_ftrs = self.model.fc.in_features  # num_ftrs = 2048
         print("features", num_ftrs, "classes", 431)
         self.model.fc = torch.nn.Linear(num_ftrs, 431)
-
-        if self.args.log_path:
-            with open(self.args.log_path + f"/{self.name}.csv", "w") as f:
-                f.write("epoch,train_acc,valid_acc,train_time,valid_time,train_corr,valid_corr,throughput\n")
 
         self.running_loss = 0.0
         self.train_running_corrects = 0
@@ -42,6 +39,14 @@ class ProcTrainer:
 
         self.train_time = 0.0
         self.validation_time = 0.0
+
+    def init_log(self, pid):
+        self.log_name += f"_pid_{pid}"
+        with open(self.args.log_path + "/" + self.log_name + ".csv", "w") as f:
+            f.write("epoch,train_acc,valid_acc,train_time,valid_time,train_corr,valid_corr,throughput\n")
+        self.gpu_path = self.args.log_path + "/" + self.log_name + "_gpu_util.csv"
+        os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,nounits -f {self.gpu_path}")
+
 
     def send_model(self):
         self.on_device = True
@@ -66,11 +71,13 @@ class ProcTrainer:
                 pid, epoch, batch_idx * len(inputs), self.args.train_dataset_len,
                 100. * batch_idx / self.args.train_loader_len, loss.item()))
         
-    def end_epoch(self, args, epoch):
+    def end_epoch(self, args, epoch, timer):
         train_epoch_acc = float(self.train_running_corrects) / args.train_dataset_len * 100
         #train_time = time.time() - self.epoch_time
-        train_time = self.train_time
-        throughput = args.train_dataset_len / self.train_time
+        #train_time = self.train_time
+        #throughput = args.train_dataset_len / self.train_time
+        train_time, validation_time, total_time, throughput = timer.get_row(args.train_dataset_len)
+
         train_running_corrects = self.train_running_corrects
 
         self.train_running_corrects = 0
@@ -84,8 +91,10 @@ class ProcTrainer:
             self.test_acc))
 
         if self.args.log_path:
-            with open(args.log_path + f"/{self.name}.csv", "a") as f:
-                f.write(f"{epoch},{train_epoch_acc},{self.test_acc},{train_time},{self.validation_time},{train_running_corrects},{self.test_correct},{throughput}\n")
+            with open(self.args.log_path + "/" + self.log_name + ".csv", "a") as f:
+                #f.write(f"{epoch},{train_epoch_acc},{self.test_acc},{train_time},{self.validation_time},{train_running_corrects},{self.test_correct},{throughput}\n")
+                f.write(f"{epoch},{train_epoch_acc},{self.test_acc},{train_time},{validation_time},{train_running_corrects},{self.test_correct},{throughput}\n")
+            os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
 
         self.test_loss = 0.0
         self.test_correct = 0
