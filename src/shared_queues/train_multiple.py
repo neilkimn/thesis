@@ -78,80 +78,40 @@ valid_transforms = transforms.Compose(
     ]
 )
 
-class MyQueue(object):
-    def __init__(self, queue, qi):
-        self.queue = queue
-        self.qi = qi
-
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def producer(loader, valid_loader, qs, device, args):
     pid = os.getpid()
-    #print(f"Producer pid: {pid}")
     torch.manual_seed(args.seed)
 
     for epoch in range(1, args.epochs+1):
-        torch.cuda.nvtx.range_push(f"Producer: Start epoch {epoch}")
-        if args.debug_data_dir:
-            debug_indices = Path(args.debug_data_dir) / f"epoch_{epoch}" / "indices.txt"
-            debug_indices.parent.mkdir(parents=True, exist_ok=True)
 
-        torch.cuda.nvtx.range_push("Start training data loading")
         for idx, (inputs, labels, indices) in enumerate(loader):
-            torch.cuda.nvtx.range_push("Sending data to GPU")
             inputs = Variable(inputs.to(device))
             labels = Variable(labels.to(device))
-            torch.cuda.nvtx.range_pop()
-            for qi, q in enumerate(qs):
-                #print(f"Putting indices {indices[:2]} in queue {qi}")
-                torch.cuda.nvtx.range_push("Put batch on queue")
-                q.put((idx, inputs, labels, epoch, "train", indices))
-                torch.cuda.nvtx.range_pop()
 
-            if args.debug_data_dir:
-                with open(debug_indices, "a") as f:
-                    f.write(" ".join(list(map(str, indices.tolist()))))
-                    f.write("\n")
-        torch.cuda.nvtx.range_pop()
+            #print(f"GPU memory allocated: {torch.cuda.memory_allocated() / 1e+6}")
+            #print(f"GPU max memory allocated: {torch.cuda.max_memory_allocated() / 1e+6}")
+            #print(f"GPU memory reserved: {torch.cuda.memory_reserved() / 1e+6}")
+            #print(f"GPU max memory reserved: {torch.cuda.memory_reserved() / 1e+6}")
+            
+
+            for q in qs:
+                q.put((idx, inputs, labels, epoch, "train", indices))
 
         # end of training for epoch, switch to eval
-        if args.debug_data_dir:
-            debug_indices = Path(args.debug_data_dir) / f"epoch_{epoch}" / "val_indices.txt"
-            debug_indices.parent.mkdir(parents=True, exist_ok=True)
-
-        torch.cuda.nvtx.range_push("Start validation data loading")
-        torch.cuda.nvtx.range_push("Getting next batch from validation loader")
         for idx, (inputs, labels, indices) in enumerate(valid_loader):
-            torch.cuda.nvtx.range_pop()
-            torch.cuda.nvtx.range_push("Sending data to GPU")
             inputs = Variable(inputs.to(device))
             labels = Variable(labels.to(device))
-            torch.cuda.nvtx.range_pop()
+
             for q in qs:
-                torch.cuda.nvtx.range_push("Put batch on queue")
                 q.put((idx, inputs, labels, epoch, "valid", indices))
-                torch.cuda.nvtx.range_pop()
-
-            if args.debug_data_dir:
-                with open(debug_indices, "a") as f:
-                    f.write(" ".join(list(map(str, indices.tolist()))))
-                    f.write("\n")
-            torch.cuda.nvtx.range_push("Getting next batch from validation loader")
-
-        torch.cuda.nvtx.range_pop()
-        torch.cuda.nvtx.range_pop()
-        torch.cuda.nvtx.range_pop()
         
         for q in qs:
             q.put((None, None, None, epoch, "end", None))
         
         print(f"Epoch {epoch} done")
-
-        ### do eval
-
-    pid = os.getpid()
-    #print(f'producer {pid} done')
 
 class TimeLogger(object):
     def __init__(self):
@@ -205,83 +165,24 @@ def worker(q, model, args):
         model.scheduler.step()
         if args.log_path:
             model.init_log(pid)
-
-    timer = TimeLogger()
-    currently_training = False
-    currently_validating = False
     
     while True:
         pid = os.getpid()
 
-        torch.cuda.nvtx.range_push("Fetched batch from queue")
         batch_time = time.time()
         idx, inputs, labels, epoch, batch_type, indices = q.get()
         batch_time = time.time() - batch_time
-        torch.cuda.nvtx.range_pop()
-
-        if args.debug_data_dir:
-            debug_indices = Path(args.debug_data_dir) / model.name / f"epoch_{epoch}" / "indices.txt"
-            debug_indices.parent.mkdir(parents=True, exist_ok=True)
-
-        if args.debug_data_dir:
-            val_debug_indices = Path(args.debug_data_dir) / model.name / f"epoch_{epoch}" / "val_indices.txt"
-            val_debug_indices.parent.mkdir(parents=True, exist_ok=True)
         
         if batch_type == "train":
-            if not currently_training:
-                if currently_validating:
-                    torch.cuda.nvtx.range_pop()
-                    currently_validating = False
-                    timer.stop_validation()
-                    print(f"Subtracting {batch_time}s from val time")
-                    timer.validation_time -= batch_time
-                torch.cuda.nvtx.range_push(f"Child: Start train {epoch}")
-                timer.start_training()
-                print(f"Adding {batch_time}s to train time")
-                timer.training_time += batch_time
-                currently_training = True
-            
-            torch.cuda.nvtx.range_push(f"Child: Model forward")
             model.forward(inputs, labels, idx, epoch, pid)
-            torch.cuda.nvtx.range_pop()
-
-            if args.debug_data_dir:
-                with open(debug_indices, "a") as f:
-                    f.write(" ".join(list(map(str, indices.tolist()))))
-                    f.write("\n")
-
-        elif batch_type == "valid":
-            if not currently_validating:
-                if currently_training:
-                    timer.stop_training()
-                    print(f"Subtracting {batch_time}s from train time")
-                    timer.training_time -= batch_time
-
-                    torch.cuda.nvtx.range_pop()
-                    currently_training = False
-                torch.cuda.nvtx.range_push(f"Child: Start val {epoch}")
-                timer.start_validation()
-                print(f"Adding {batch_time}s to val time")
-                timer.validation_time += batch_time
-                currently_validating = True
-
-            torch.cuda.nvtx.range_push(f"Child: Model validate")
-            model.validate(inputs, labels)
-            torch.cuda.nvtx.range_pop()
-            if args.debug_data_dir:
-                with open(val_debug_indices, "a") as f:
-                    f.write(" ".join(list(map(str, indices.tolist()))))
-                    f.write("\n")
-
-        elif batch_type == "end":
-            torch.cuda.nvtx.range_pop()
-            timer.stop_training()
-            timer.stop_validation()
-            print(f"Training time: {timer.training_time}s, validation time {timer.validation_time}s")
-            model.end_epoch(args, epoch, timer)
-            timer.reset()
             
-        #print(f'pid {pid} Finished {idx}')
+        elif batch_type == "valid":
+            
+            model.validate(inputs, labels)
+            
+        elif batch_type == "end":
+            model.end_epoch(args, epoch)
+            
         q.task_done()
 
 if __name__ == "__main__":
@@ -319,7 +220,7 @@ if __name__ == "__main__":
         proc_model = ProcTrainer(args, model, device)
         train_models.append(proc_model)
     
-    queues = [JoinableQueue(maxsize=10)]*args.num_processes
+    queues = [JoinableQueue(maxsize=1)]*args.num_processes
 
     """Split train and test"""
     train_len = int(0.7 * len(dataset))
@@ -339,7 +240,7 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.training_workers,
-        pin_memory=True,
+        pin_memory=False,
         prefetch_factor=args.prefetch_factor,
     )
 

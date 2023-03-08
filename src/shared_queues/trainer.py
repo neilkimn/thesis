@@ -71,13 +71,12 @@ class ProcTrainer:
                 pid, epoch, batch_idx * len(inputs), self.args.train_dataset_len,
                 100. * batch_idx / self.args.train_loader_len, loss.item()))
         
-    def end_epoch(self, args, epoch, timer):
+    def end_epoch(self, args, epoch):
         train_epoch_acc = float(self.train_running_corrects) / args.train_dataset_len * 100
         #train_time = time.time() - self.epoch_time
-        #train_time = self.train_time
-        #throughput = args.train_dataset_len / self.train_time
-        train_time, validation_time, total_time, throughput = timer.get_row(args.train_dataset_len)
-
+        train_time = self.train_time
+        throughput = args.train_dataset_len / self.train_time
+        
         train_running_corrects = self.train_running_corrects
 
         self.train_running_corrects = 0
@@ -92,8 +91,8 @@ class ProcTrainer:
 
         if self.args.log_path:
             with open(self.args.log_path + "/" + self.log_name + ".csv", "a") as f:
-                #f.write(f"{epoch},{train_epoch_acc},{self.test_acc},{train_time},{self.validation_time},{train_running_corrects},{self.test_correct},{throughput}\n")
-                f.write(f"{epoch},{train_epoch_acc},{self.test_acc},{train_time},{validation_time},{train_running_corrects},{self.test_correct},{throughput}\n")
+                f.write(f"{epoch},{train_epoch_acc},{self.test_acc},{train_time},{self.validation_time},{train_running_corrects},{self.test_correct},{throughput}\n")
+                #f.write(f"{epoch},{train_epoch_acc},{self.test_acc},{train_time},{validation_time},{train_running_corrects},{self.test_correct},{throughput}\n")
             os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
 
         self.test_loss = 0.0
