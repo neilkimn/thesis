@@ -27,7 +27,9 @@ model_names = sorted(name for name in models.__dict__
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch-size', type=int, default=80)
-parser.add_argument('--num-workers', type=int, default=1)
+parser.add_argument('--training-workers', type=int, default=1)
+parser.add_argument('--validation-workers', type=int, default=1)
+parser.add_argument('--prefetch-factor', type=int, default=1)
 parser.add_argument('--seed', type=int, default=1234)
 parser.add_argument('--epochs', type=int, default=5)
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
@@ -90,11 +92,10 @@ if __name__ == "__main__":
 
     dataset = CarDataset(file_path=file_train, folder_images=folder_images, labels=labels)
 
-    #model = torchvision.models.resnet18(pretrained="imagenet")
     model = torchvision.models.__dict__[args.arch](pretrained=pretrained)
     model.name = args.arch + "_pretrained" if pretrained else args.arch
 
-    print("Model:", model.name)
+    print(f"PID: {os.getpid()}, Model: {model.name}")
 
     model_trainer = Trainer(args, model, device, dataset, train_transforms, valid_transforms)
 

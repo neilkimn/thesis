@@ -13,7 +13,8 @@ setup(
         'nvidia-pyindex',
         'nvidia-dali-cuda110',
         'cupy-cuda11x',
-        'multiprocess'
+        'multiprocess',
+        'matplotlib'
     ],
     dependency_links=[
     ]
