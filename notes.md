@@ -57,3 +57,40 @@ total: 7402 MB
 2 train, batch size 100
 3577 MB
 3793 MB
+
+
+
+### Notes 16 Mar
+
+Single training, rn18 and rn34, 10 epochs, batch size 50
+rn18: 2695MB
+rn34: 3241MB
+
+Multiple training, rn18 (40%) and rn34 (60%), 10 epochs, batch size 50
+rn18: 2337MB
+rn34: 2917MB
+loader: 621MB
+MPS: 23MB
+
+Multiple training, rn18 (50%) and rn34 (50%), 10 epochs, batch size 50
+rn18: 2403MB
+rn34: 2957MB
+loader: 631MB
+
+# TODO
+- Come up with measure of throttling for when using 50-50 split of GPU resources.
+
+- Grid-search something-something to find 'sweet spot' for identical performance of RN18 and RN34.
+
+- Narrow down CUDA context overhead.
+
+- Compare 50-50 MIG vs default: No different in shared-dataset scenario
+
+# TODO new
+- Eval individual runs of RN18 and RN34 against the combined workloads. Also do RN18-RN18, RN34-RN34
+
+- Figure out why memory consumption is low all of a sudden. Is it due to move from Rebelrig to own machine? Has to do with subclassing of Queue
+
+- Update graphs with validation accuracy to be scatter
+
+- 'Intelligent' MPS partitioning based on weights

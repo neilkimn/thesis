@@ -43,7 +43,7 @@ class ProcTrainer:
         with open(log_path, "w") as f:
             f.write("epoch,train_acc,valid_acc,train_time,batch_time,valid_time,total_time,train_corr,valid_corr\n")
         gpu_path = self.args.log_dir + "/" + self.log_name + "_gpu_util.csv"
-        os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,nounits -f {self.gpu_path}")
+        os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,nounits -f {gpu_path}")
         return log_path, gpu_path
 
     def send_model(self):

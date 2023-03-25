@@ -53,6 +53,7 @@ parser.add_argument('--log_dir', metavar='LOG_DIR', nargs='?', default='',
                     help='path to store training log')
 parser.add_argument('--pretrained', nargs='+', metavar="PRETRAIN", help="Whether to pretrain a certain model")
 parser.add_argument('--dummy_data', action='store_true', help="use fake data to benchmark")
+parser.add_argument('--record_first_batch_time', action='store_true', help="Don't skip measuring time spent on first batch")
 
 train_transforms = transforms.Compose(
     [
@@ -128,14 +129,55 @@ def producer(loader, valid_loader, qs, device, args):
             write_debug_indices(indices, debug_indices_val_path, args)
         
         for q in qs:
-            q.queue.put((None, None, None, epoch, "end", None))
+            q.queue.put((0, None, None, epoch, "end", None))
 
 class MyQueue(object):
-    def __init__(self, queue, index) -> None:
+    def __init__(self, queue, index):
         self.queue = queue
         self.index = index
 
+class Logger(object):
+    def __init__(self, args, pid, log_path=None, gpu_path=None):
+        self.args = args
+        self.pid = pid
+        self.log_path = log_path
+        self.gpu_path = gpu_path
+        
+        self.train_time = 0
+        self.batch_time = 0
+        self.val_acc = 0
+        self.val_loss = 0
+        self.val_correct = 0
+        self.val_time = 0
+    
+    def log_train_interval(self, idx, epoch, num_items, loss, items_processed, train_time, batch_time):
+        self.train_time = train_time
+        self.batch_time = batch_time
+
+        if idx % self.args.log_interval == 0:
+            print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.2f} Throughput [img/s]: {:.1f}'.format(
+                self.pid, epoch, idx * num_items, self.args.train_dataset_len,
+                100. * idx / self.args.train_loader_len, loss.item(), items_processed/(train_time+batch_time)))
+
+    def log_validation(self, val_loss, val_correct, val_acc, val_time):
+        self.val_time = val_time
+        self.val_acc = val_acc
+        self.val_loss = val_loss
+        self.val_correct = val_correct
+        
+    def log_write_epoch_end(self, epoch, epoch_time, train_acc, train_running_corrects):
+        print('{} Validation: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+            self.pid, self.val_loss, self.val_correct, self.args.valid_dataset_len, self.val_acc))
+        
+        print(f"{self.pid} Epoch {epoch} end: {round(epoch_time,1)}s, Train accuracy: {round(train_acc,2)}")
+        if self.args.log_dir:
+            with open(self.log_path, "a") as f:
+                f.write(f"{epoch},{train_acc},{self.val_acc},{self.train_time},{self.batch_time},{self.val_time},{epoch_time},{train_running_corrects},{self.val_correct}\n")
+                os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
+
+
 def worker(q, model, args):
+    log_path, gpu_path = None, None
     if model.on_device == False:
         pid = os.getpid()
         print(f"{pid}\tTraining model: {model.name}")
@@ -143,7 +185,10 @@ def worker(q, model, args):
         model.scheduler.step()
         if args.log_dir:
             log_path, gpu_path = model.init_log(pid)
-        
+    
+    logger = Logger(args, pid, log_path, gpu_path)    
+    if not args.record_first_batch_time:
+        print("Skipping recording batch time for first batch!")
     
     debug_indices_path, debug_indices_val_path = None, None
 
@@ -160,7 +205,11 @@ def worker(q, model, args):
             debug_indices_val_path = Path(args.debug_data_dir) / model.name / f"epoch_{epoch}" / "val_indices.txt"
             debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
 
-        batch_time += time.time() - start
+        if args.record_first_batch_time:
+            batch_time += time.time() - start
+        else:
+            if idx > 0:
+                batch_time += time.time() - start
 
         start = time.time()
         if batch_type == "train":
@@ -168,26 +217,18 @@ def worker(q, model, args):
             loss = model.forward(inputs, labels)
             items_processed += len(inputs)
             train_time += time.time() - start
-            if idx % args.log_interval == 0:
-                print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.2f} Throughput [img/s]: {:.1f}'.format(
-                    pid, epoch, idx * len(inputs), args.train_dataset_len,
-                    100. * idx / args.train_loader_len, loss.item(), items_processed/(train_time+batch_time)))
+            logger.log_train_interval(idx, epoch, len(inputs), loss, items_processed, train_time, batch_time)
 
         elif batch_type == "valid":
             write_debug_indices(indices, debug_indices_val_path, args)
             val_loss, val_acc, val_correct = model.validate(inputs, labels)
             val_time += time.time() - start
-            ('{} Validation: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-            pid, val_loss, val_correct, args.valid_dataset_len, val_acc))
+            logger.log_validation(val_loss, val_correct, val_acc, val_time)
             
         elif batch_type == "end":
             train_epoch_acc, train_running_corrects = model.end_epoch(args)
             epoch_time = train_time + val_time + batch_time
-            print(f"{pid} Epoch {epoch} end: {round(epoch_time,1)}s, Train accuracy: {round(train_epoch_acc,2)}")
-            if args.log_dir:
-                with open(log_path, "a") as f:
-                    f.write(f"{epoch},{train_epoch_acc},{val_acc},{train_time},{batch_time},{val_time},{epoch_time},{train_running_corrects},{val_correct}\n")
-                    os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {gpu_path}")
+            logger.log_write_epoch_end(epoch, epoch_time, train_epoch_acc, train_running_corrects)
             train_time, val_time, batch_time,items_processed = 0,0,0,0
 
         q.queue.task_done()

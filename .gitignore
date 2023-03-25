@@ -1,6 +1,6 @@
 *.pyc
 src/thesis.egg-info/*
-logs/*
+#logs/*
 src/distributed_old/*
 */**/trace.json
 *.nsys-rep
