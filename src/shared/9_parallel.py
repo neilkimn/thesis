@@ -9,7 +9,6 @@ import multiprocess as mp
 
 from pathlib import Path
 import numpy as np
-import cupy as cp
 import argparse
 import os
 

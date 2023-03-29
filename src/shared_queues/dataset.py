@@ -1,7 +1,6 @@
 from PIL import Image
 from torch.utils import data as D
 import torch
-import cupy as cp
 
 class CarDataset(D.Dataset):
     def __init__(self, file_path, folder_images, labels: list):

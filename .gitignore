@@ -1,8 +1,10 @@
 *.pyc
 src/thesis.egg-info/*
-#logs/*
 src/distributed_old/*
 */**/trace.json
 *.nsys-rep
 debug_data/*
 data/*
+notes.md
+logs/queues/*
+setup.py
