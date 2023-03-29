@@ -7,8 +7,7 @@ import torchvision.models as models
 import torchvision.datasets as datasets
 
 import torch.multiprocessing as mp
-from torch.multiprocessing import Process, Queue, JoinableQueue
-from torch.multiprocessing import Value, Lock, Array
+from torch.multiprocessing import Process, JoinableQueue
 from torch.utils import data as D
 from torch.autograd import Variable
 
@@ -19,10 +18,10 @@ import random
 import time
 import os
 
-from collections.abc import Sequence
-
+from shared.util import MyQueue, Logger, write_debug_indices
 from shared.dataset import CarDataset, DatasetFromSubset
 from shared_queues.trainer import ProcTrainer
+from shared.mps import MPSWeights
 
 INPUT_SIZE = 224
 root = Path(os.environ["DATA_PATH"])
@@ -83,16 +82,6 @@ valid_transforms = transforms.Compose(
     ]
 )
 
-def write_debug_indices(indices, debug_indices_path, args):
-    if args.debug_data_dir:
-        with open(debug_indices_path, "a") as f:
-            f.write(" ".join(list(map(str, indices.tolist()))))
-            f.write("\n")
-
-
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
 def producer(loader, valid_loader, qs, device, args):
     pid = os.getpid()
     torch.manual_seed(args.seed)
@@ -133,223 +122,6 @@ def producer(loader, valid_loader, qs, device, args):
         
         for q in qs:
             q.queue.put((0, None, None, epoch, "end", None))
-
-
-class MaxVal(object):
-    def __init__(self, initval=0):
-        self.val = Value('i', initval)
-        self.lock = Lock()
-
-    def value(self):
-        with self.lock:
-            return self.val.value
-        
-    def set_value(self, value):
-        with self.lock:
-            self.val.value = value
-
-class Counter(object):
-    def __init__(self, init_val=0):
-        self.val = Value('i', init_val)
-        self.init_val = init_val
-        self.lock = Lock()
-
-    def increment(self):
-        with self.lock:
-            self.val.value += 1
-
-    def value(self):
-        with self.lock:
-            return self.val.value
-        
-    def reset(self):
-        with self.lock:
-            self.val.value = self.init_val
-
-class AtomicInt(object):
-    def __init__(self, initval=-1):
-        self.val = Value('i', initval)
-        self.lock = Lock()
-
-    def value(self):
-        with self.lock:
-            return self.val.value
-        
-    def reset(self):
-        with self.lock:
-            self.val.value = -1
-
-    def set_value(self, value):
-        with self.lock:
-            self.val.value = value
-
-class MPSWeights(Sequence):
-    def __init__(self, num_processes, increment=2, update_interval=5, log_path=None):
-        self.weights = Array('i', [10]*num_processes)
-        self.num_processes = num_processes
-        self.percentages = Array('i', [0]*num_processes)
-        self.set_percentages()
-        self.increment = increment
-        self.iterations = Counter(0) # Number of iterations algorithm have run for
-        self.update_interval = update_interval
-        self.converged = AtomicInt(0) # Whether or not we've converged
-        self.updates = Counter(0) # Amount of updates done in one iteration 
-        self.biggest_queue = MaxVal(0) # Value of the biggest queue
-        self.biggest_index = AtomicInt(-1) # Index of process with the biggest queue size
-        self.equals = Counter(1) # Amount of queue sizes that are equal
-        self.convergence_counter = Counter(0) # Number of times queues across training processes have been equal
-        if log_path:
-            self.logger = MPSLogger(log_path)
-        super().__init__()
-
-    def set_percentages(self):
-        total = sum(self.weights)
-        for idx, w in enumerate(self.weights):
-            self.percentages[idx] = int(w/total*100)
-
-    def increment_weight(self, i):
-        self.weights[i] += self.increment
-        self.set_percentages()
-
-    def __getitem__(self, i):
-        return self.percentages[i]
-    def __len__(self):
-        return len(self.percentages)
-    
-    def set_convergence(self):
-        self.converged.set_value(1)
-    
-    def get_convergence(self):
-        return self.converged.value()
-
-    def update_weights(self, pid):
-
-        # If queue sizes for all training processes have been updated in current iteration, we can update weights
-        if self.updates.value() == self.num_processes:
-
-            # Queue sizes across training processes were too similar, updating one over another would skew training speed
-            if self.equals.value() == self.num_processes:
-
-                self.convergence_counter.increment()
-                self.equals.reset()
-                self.biggest_queue.set_value(0)
-                self.biggest_index.reset()
-
-                # If we've seen similar queue sizes across training processes three times in a row, assume convergence
-                if self.convergence_counter.value() == 3:
-                    print("Weights were not updated for three iterations, setting convergence")
-                    self.set_convergence()
-            
-            # Queue size of some training process was greater than others, increment weight for that process
-            else:
-                if self.biggest_index.value() > -1:
-                    self.increment_weight(self.biggest_index.value())
-                    self.biggest_queue.set_value(0)
-
-                self.logger.write_line(str(pid),str(self.iterations.value()),"","","",
-                                       str(self.biggest_index.value()),"","",str(self.convergence_counter.value()))
-                
-                if self.biggest_index.value() > -1:
-                    self.biggest_index.reset()
-                self.equals.reset()
-                self.convergence_counter.reset()
-
-            self.updates.reset()
-            self.iterations.increment()
-        
-
-    def set_qsize(self, qsize, i, pid, model_name):
-
-        self.logger.write_line(str(pid),str(self.iterations.value()),str(i),model_name,str(qsize),"",
-                               str(self.weights[i]),str(self.percentages[i]),str(self.convergence_counter.value()))
-
-        # Check if queue sizes were roughly the same and that both biggest queue size recorded and current queue size is not 0
-        if abs(qsize - self.biggest_queue.value()) <= 2 and (self.biggest_queue.value() != 0 and qsize != 0):
-            # If above is the case, we deem the queues equal and increment towards convergence
-            self.equals.increment()
-        elif qsize > self.biggest_queue.value():
-            # Otherwise, set process with biggest queue size to have weight updated next
-            self.biggest_queue.set_value(qsize)
-            self.biggest_index.set_value(i)
-        self.updates.increment()
-        
-
-class MyQueue(object):
-    def __init__(self, queue, index):
-        self.queue = queue
-        self.index = index
-
-# TODO: Make this a shared object: https://stackoverflow.com/questions/3671666/sharing-a-complex-object-between-processes
-class Logger(object):
-    def __init__(self, args, pid=0, log_path=None, gpu_path=None):
-        self.args = args
-        self.pid = pid
-        self.log_path = log_path
-        self.gpu_path = gpu_path
-        
-        self.train_time = 0
-        self.batch_time = 0
-        self.val_acc = 0
-        self.val_loss = 0
-        self.val_correct = 0
-        self.val_time = 0
-
-        self.mps_train_time = 0
-        self.mps_batch_time = 0
-        self.mps_misc_time = 0 # TODO: Instead of rolling this into train time, save in distinct column?
-
-    def set_mps_time(self, mps_time):
-        self.mps_train_time = mps_time["train_time"]
-        self.mps_batch_time = mps_time["batch_time"]
-        self.mps_misc_time = mps_time["misc_time"]
-    
-    def log_train_interval(self, idx, epoch, num_items, loss, items_processed, train_time, batch_time):
-        self.train_time = train_time
-        self.batch_time = batch_time
-
-        if idx % self.args.log_interval == 0:
-            print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.2f} Throughput [img/s]: {:.1f}'.format(
-                self.pid, epoch, idx * num_items, self.args.train_dataset_len,
-                100. * idx / self.args.train_loader_len, loss.item(), items_processed/(train_time+batch_time)))
-
-    def log_validation(self, val_loss, val_correct, val_acc, val_time):
-        self.val_time = val_time
-        self.val_acc = val_acc
-        self.val_loss = val_loss
-        self.val_correct = val_correct
-        
-    def log_write_epoch_end(self, epoch, epoch_time, train_acc, train_running_corrects):
-        # If we have done some MPS-weight finding, we need to include the train and batch time from that in the total epoch time
-        if any((self.mps_train_time, self.mps_batch_time, self.mps_misc_time)):
-            print(f"Adding time from MPS finding: {self.mps_train_time + self.mps_batch_time + self.mps_misc_time}")
-            self.train_time += (self.mps_train_time + self.mps_misc_time)
-            self.val_time += self.mps_batch_time
-            epoch_time += (self.mps_train_time + self.mps_batch_time + self.mps_misc_time)
-            self.mps_train_time, self.mps_batch_time, self.mps_misc_time = 0,0,0
-
-        print('{} Validation: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-            self.pid, self.val_loss, self.val_correct, self.args.valid_dataset_len, self.val_acc))
-        
-        print(f"{self.pid} Epoch {epoch} end: {round(epoch_time,1)}s, Train accuracy: {round(train_acc,2)}")
-        if self.args.log_dir:
-            with open(self.log_path, "a") as f:
-                f.write(f"{epoch},{train_acc},{self.val_acc},{self.train_time},{self.batch_time},{self.val_time},{epoch_time},{train_running_corrects},{self.val_correct}\n")
-                os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
-
-        self.train_time = 0
-        self.batch_time = 0
-
-class MPSLogger(object):
-    def __init__(self, log_path=None):
-        self.log_path = log_path
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.log_path, "w") as f:
-            f.write("pid,iteration,index,model,qsize,incremented_index,weight,thread_percentage,convergence_count\n")
-
-    def write_line(self, *args):
-        line = ",".join(args)
-        with open(self.log_path, "a") as f:
-            f.write(f"{line}\n")
 
 
 # Use this worker for setting MPS weights
@@ -416,14 +188,10 @@ def worker(q, model, args, mps_time=None):
         model.scheduler.step()
         if args.log_dir:
             log_path, gpu_path = model.init_log(pid)
-    #if not logger:
-    #    print("Creating own logger")
+
     logger = Logger(args, pid, log_path, gpu_path)
     if mps_time:
         logger.set_mps_time(mps_time)
-    #if logger and log_path and gpu_path and pid:
-    #    logger.set_pid(pid)
-    #    logger.set_paths(log_path, gpu_path)
 
     if not args.record_first_batch_time:
         print("Skipping recording batch time for first batch!")
