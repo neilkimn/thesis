@@ -232,10 +232,12 @@ def worker(q, model, args, mps_time=None):
             
         elif batch_type == "end":
             train_epoch_acc, train_running_corrects = model.end_epoch(args)
-            epoch_time = train_time + val_time + batch_time
+            #epoch_time = train_time + val_time + batch_time
+            epoch_time = time.time() - big_start
             logger.log_write_epoch_end(epoch, epoch_time, train_epoch_acc, train_running_corrects)
             train_time, val_time, batch_time,items_processed = 0,0,0,0
             print(f"Epoch took {time.time() - big_start} seconds")
+            big_start = time.time()
 
         q.queue.task_done()
 
@@ -243,6 +245,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     assert args.num_processes == len(args.arch)
+    parent_pid = os.getpid()
 
     if args.seed is not None:
         print(f"Setting seed {args.seed}")
@@ -283,7 +286,10 @@ if __name__ == "__main__":
         queue = MyQueue(q, idx)
         queues.append(queue)
 
-    mps_log_path = Path("/home/kafka/repos/thesis/mps_log.csv")
+    model_names = "_".join([model.name for model in train_models])
+
+    mps_log_path = Path(f"/home/kafka/repos/thesis/logs/mps/mps_log_{model_names}_pid_{parent_pid}.csv")
+    print(f"Writing MPS logs to {mps_log_path}")
     
     mps_weights = MPSWeights(args.num_processes, update_interval=10, log_path=mps_log_path)
 
@@ -357,10 +363,12 @@ if __name__ == "__main__":
         for w in workers:
             w.join()
     
-    total_mps_time = time.time() - mps_start
-    mps_time["misc_time"] = total_mps_time - sum(mps_time.values())
-    print(f"Done with figuring out MPS weights, took {total_mps_time} seconds")
-    print(f"Spent {mps_time['train_time']} seconds on training, {mps_time['batch_time']} seconds on batch time and {mps_time['misc_time']} seconds on misc MPS stuff")
+    # TODO: Split this up into train, batch and misc. time. For now just add total MPS time to epoch time
+    #total_mps_time = time.time() - mps_start
+    #mps_time["misc_time"] = total_mps_time - sum(mps_time.values())
+    mps_time = time.time() - mps_start
+    #print(f"Spent {mps_time['train_time']} seconds on training, {mps_time['batch_time']} seconds on batch time and {mps_time['misc_time']} seconds on misc MPS stuff")
+    print(f"Done with figuring out MPS weights, took {mps_time} seconds")
 
     workers = []
     for i in range(args.num_processes):

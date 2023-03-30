@@ -69,9 +69,10 @@ class Logger(object):
         self.mps_misc_time = 0 # TODO: Instead of rolling this into train time, save in distinct column?
 
     def set_mps_time(self, mps_time):
-        self.mps_train_time = mps_time["train_time"]
-        self.mps_batch_time = mps_time["batch_time"]
-        self.mps_misc_time = mps_time["misc_time"]
+        self.mps_time = mps_time
+        #self.mps_train_time = mps_time["train_time"]
+        #self.mps_batch_time = mps_time["batch_time"]
+        #self.mps_misc_time = mps_time["misc_time"]
     
     def log_train_interval(self, idx, epoch, num_items, loss, items_processed, train_time, batch_time):
         self.train_time = train_time
@@ -90,12 +91,16 @@ class Logger(object):
         
     def log_write_epoch_end(self, epoch, epoch_time, train_acc, train_running_corrects):
         # If we have done some MPS-weight finding, we need to include the train and batch time from that in the total epoch time
-        if any((self.mps_train_time, self.mps_batch_time, self.mps_misc_time)):
-            print(f"Adding time from MPS finding: {self.mps_train_time + self.mps_batch_time + self.mps_misc_time}")
-            self.train_time += (self.mps_train_time + self.mps_misc_time)
-            self.val_time += self.mps_batch_time
-            epoch_time += (self.mps_train_time + self.mps_batch_time + self.mps_misc_time)
-            self.mps_train_time, self.mps_batch_time, self.mps_misc_time = 0,0,0
+        #if any((self.mps_train_time, self.mps_batch_time, self.mps_misc_time)):
+        #    print(f"Adding time from MPS finding: {self.mps_train_time + self.mps_batch_time + self.mps_misc_time}")
+        #    print(f"Train time: {self.mps_train_time}, batch time: {self.mps_batch_time}, misc time: {self.mps_misc_time}")
+        #    self.train_time += (self.mps_train_time + self.mps_misc_time)
+        #    self.val_time += self.mps_batch_time
+        #    epoch_time += (self.mps_train_time + self.mps_batch_time + self.mps_misc_time)
+        #    self.mps_train_time, self.mps_batch_time, self.mps_misc_time = 0,0,0
+        if self.mps_time and epoch == 0:
+            epoch_time += self.mps_time
+            self.mps_time = 0
 
         print('{} Validation: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
             self.pid, self.val_loss, self.val_correct, self.args.valid_dataset_len, self.val_acc))

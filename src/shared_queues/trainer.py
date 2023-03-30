@@ -68,9 +68,9 @@ class ProcTrainer:
         train_running_corrects = self.train_running_corrects
         self.train_running_corrects = 0
 
-        self.test_loss = 0.0
-        self.test_correct = 0
-        self.test_acc = 0.0
+        self.val_loss = 0.0
+        self.val_correct = 0
+        self.val_acc = 0.0
 
         self.model.train(True)
         self.scheduler.step()
@@ -154,7 +154,7 @@ class Trainer:
             pin_memory=True,
             prefetch_factor=self.args.prefetch_factor,
         )
-
+        epoch_start = time.time()
         for epoch in range(1, self.args.epochs + 1):
             train_acc, train_time, train_batch_time, train_corrects, throughput = self.train_epoch(epoch, train_loader, optimizer, scheduler, criterion, rank, lock)
 
@@ -162,7 +162,9 @@ class Trainer:
             #if epoch == self.args.epochs:
             valid_acc, valid_corrects, valid_time, val_batch_time = self.test(rank, epoch)
             total_batch_time = train_batch_time + val_batch_time
-            total_time = train_time + valid_time + total_batch_time
+            #total_time = train_time + valid_time + total_batch_time
+            total_time = time.time() - epoch_start
+            epoch_start = time.time()
 
             if self.args.log_path:
                 with open(self.args.log_path / f"{self.model.name}_pid_{self.pid}.csv", "a") as f:
