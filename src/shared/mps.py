@@ -3,12 +3,19 @@ from torch.multiprocessing import Array
 from shared.util import MPSLogger, MaxVal, Counter, AtomicInt
 
 class MPSWeights(Sequence):
-    def __init__(self, num_processes, increment=2, update_interval=5, log_path=None):
+    def __init__(self, num_processes, max_size, increment=2, update_interval=5, log_path=None):
         self.weights = Array('i', [10]*num_processes)
+        #self.weights = Array('i', [10,150])
         self.num_processes = num_processes
         self.percentages = Array('i', [0]*num_processes)
         self.set_percentages()
         self.increment = increment
+        # Number of times we've seen a queue completely full
+        # We need this to also handle if a GPU is too slow to
+        # process the batches. In case it is, we should not
+        # optimize further.
+        self.max_size = max_size
+        self.max_size_counter = Counter(0)
         self.iterations = Counter(0) # Number of iterations algorithm have run for
         self.update_interval = update_interval
         self.converged = AtomicInt(0) # Whether or not we've converged
@@ -45,6 +52,11 @@ class MPSWeights(Sequence):
 
         # If queue sizes for all training processes have been updated in current iteration, we can update weights
         if self.updates.value() == self.num_processes:
+
+            # If we have measured queues being full for too many iterations, stop optimization
+            if self.max_size_counter == 10:
+                print("Stopping optimization due to a queue being full for too many iterations")
+                self.set_convergence()
 
             # Queue sizes across training processes were too similar, updating one over another would skew training speed
             if self.equals.value() == self.num_processes:
@@ -90,4 +102,6 @@ class MPSWeights(Sequence):
             # Otherwise, set process with biggest queue size to have weight updated next
             self.biggest_queue.set_value(qsize)
             self.biggest_index.set_value(i)
+        if abs(qsize - self.max_size) < 2:
+            self.max_size_counter.increment()
         self.updates.increment()

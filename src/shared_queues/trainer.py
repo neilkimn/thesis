@@ -158,9 +158,10 @@ class Trainer:
         for epoch in range(1, self.args.epochs + 1):
             train_acc, train_time, train_batch_time, train_corrects, throughput = self.train_epoch(epoch, train_loader, optimizer, scheduler, criterion, rank, lock)
 
-            valid_acc, valid_corrects = 0, 0
+            valid_acc, valid_corrects, valid_time, val_batch_time = 0, 0, 0, 0
             #if epoch == self.args.epochs:
-            valid_acc, valid_corrects, valid_time, val_batch_time = self.test(rank, epoch)
+            if epoch > 8:
+                valid_acc, valid_corrects, valid_time, val_batch_time = self.test(rank, epoch)
             total_batch_time = train_batch_time + val_batch_time
             #total_time = train_time + valid_time + total_batch_time
             total_time = time.time() - epoch_start

@@ -107,18 +107,19 @@ def producer(loader, valid_loader, qs, device, args):
             write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
-        if args.debug_data_dir:
-            debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / "producer_val_indices.txt"
-            debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
+        if epoch > 8:
+            if args.debug_data_dir:
+                debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / "producer_val_indices.txt"
+                debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
 
-        for idx, (inputs, labels, indices) in enumerate(valid_loader):
-            inputs = Variable(inputs.to(device))
-            labels = Variable(labels.to(device))
+            for idx, (inputs, labels, indices) in enumerate(valid_loader):
+                inputs = Variable(inputs.to(device))
+                labels = Variable(labels.to(device))
 
-            for q in qs:
-                q.queue.put((idx, inputs, labels, epoch, "valid", indices))
+                for q in qs:
+                    q.queue.put((idx, inputs, labels, epoch, "valid", indices))
 
-            write_debug_indices(indices, debug_indices_val_path, args)
+                write_debug_indices(indices, debug_indices_val_path, args)
         
         for q in qs:
             q.queue.put((0, None, None, epoch, "end", None))
@@ -281,17 +282,18 @@ if __name__ == "__main__":
         train_models.append(proc_model)
 
     queues = []
+    max_queue_size = 20
     for idx in range(args.num_processes):
-        q = JoinableQueue(maxsize=10)
+        q = JoinableQueue(maxsize=max_queue_size)
         queue = MyQueue(q, idx)
         queues.append(queue)
 
     model_names = "_".join([model.name for model in train_models])
 
-    mps_log_path = Path(f"/home/kafka/repos/thesis/logs/mps/mps_log_{model_names}_pid_{parent_pid}.csv")
+    mps_log_path = Path(f"/home/neni/repos/thesis/logs/mps/mps_log_{model_names}_pid_{parent_pid}.csv")
     print(f"Writing MPS logs to {mps_log_path}")
     
-    mps_weights = MPSWeights(args.num_processes, update_interval=10, log_path=mps_log_path)
+    mps_weights = MPSWeights(args.num_processes, max_size=max_queue_size, increment=4, update_interval=10, log_path=mps_log_path)
 
     """Split train and test"""
     train_len = int(0.7 * len(dataset))

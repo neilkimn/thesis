@@ -115,18 +115,19 @@ def producer(loader, valid_loader, qs, device, args):
             write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
-        if args.debug_data_dir:
-            debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / "producer_val_indices.txt"
-            debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
+        if epoch > 8:
+            if args.debug_data_dir:
+                debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / "producer_val_indices.txt"
+                debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
 
-        for idx, (inputs, labels, indices) in enumerate(valid_loader):
-            inputs = Variable(inputs.to(device))
-            labels = Variable(labels.to(device))
+            for idx, (inputs, labels, indices) in enumerate(valid_loader):
+                inputs = Variable(inputs.to(device))
+                labels = Variable(labels.to(device))
 
-            for q in qs:
-                q.queue.put((idx, inputs, labels, epoch, "valid", indices))
+                for q in qs:
+                    q.queue.put((idx, inputs, labels, epoch, "valid", indices))
 
-            write_debug_indices(indices, debug_indices_val_path, args)
+                write_debug_indices(indices, debug_indices_val_path, args)
         
         for q in qs:
             q.queue.put((0, None, None, epoch, "end", None))
