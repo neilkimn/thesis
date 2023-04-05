@@ -82,7 +82,7 @@ valid_transforms = transforms.Compose(
     ]
 )
 
-def producer(loader, valid_loader, qs, device, args):
+def producer(loader, valid_loader, qs, device, args, producer_alive):
     pid = os.getpid()
     torch.manual_seed(args.seed)
     if args.debug_data_dir:
@@ -123,6 +123,7 @@ def producer(loader, valid_loader, qs, device, args):
         
         for q in qs:
             q.queue.put((0, None, None, epoch, "end", None))
+    producer_alive.set()
 
 
 # Use this worker for setting MPS weights
@@ -180,7 +181,7 @@ def MPS_worker(q, model, mps_weights, args, mps_time):
         
         q.queue.task_done()
 
-def worker(q, model, args, mps_time=None):
+def worker(q, model, args, producer_alive, mps_time=None):
     log_path, gpu_path, pid = None, None, 0
     if model.on_device == False:
         pid = os.getpid()
@@ -201,7 +202,7 @@ def worker(q, model, args, mps_time=None):
 
     train_time, val_time, batch_time, items_processed = 0,0,0,0
     big_start = time.time()
-    while True:
+    while not producer_alive.is_set():
         start = time.time()
         idx, inputs, labels, epoch, batch_type, indices = q.queue.get()
 
@@ -290,7 +291,7 @@ if __name__ == "__main__":
 
     model_names = "_".join([model.name for model in train_models])
 
-    mps_log_path = Path(f"/home/neni/repos/thesis/logs/mps/mps_log_{model_names}_pid_{parent_pid}.csv")
+    mps_log_path = Path(f"/home/kafka/repos/thesis/logs/mps/mps_log_{model_names}_pid_{parent_pid}.csv")
     print(f"Writing MPS logs to {mps_log_path}")
     
     mps_weights = MPSWeights(args.num_processes, max_size=max_queue_size, increment=4, update_interval=10, log_path=mps_log_path)
@@ -332,9 +333,11 @@ if __name__ == "__main__":
     args.valid_dataset_len = len(valid_loader.dataset)
     args.valid_loader_len = len(valid_loader)
 
+    producer_alive = mp.Event()
+
     producers = []
     for i in range(1):
-        p = Process(target=producer, args = ((train_loader, valid_loader, queues, device, args)))
+        p = Process(target=producer, args = ((train_loader, valid_loader, queues, device, args, producer_alive)))
         producers.append(p)
         p.start()
 
@@ -376,14 +379,13 @@ if __name__ == "__main__":
     for i in range(args.num_processes):
         print(f"Setting MPS threads to {mps_weights[i]}")
         os.environ['CUDA_MPS_ACTIVE_THREAD_PERCENTAGE'] = str(mps_weights[i])
-        p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args, mps_time)))
+        p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args, producer_alive, mps_time)))
         workers.append(p)
         p.start()
 
     for p in producers:
-        print("Waiting for producer finish ...")
+        print("Producer finish ...")
         p.join()
+    producer_alive.set()
 
-    for q in queues:
-        q.queue.join()
     print(f"Completed in {time.time() - _start} seconds")

@@ -9,3 +9,8 @@ notes.md
 logs/queues/*
 setup.py
 logs/*
+run_mps.sh
+train_multiple_mps.sh
+train_multiple.sh
+train_single.sh
+notes.md
