@@ -139,7 +139,7 @@ class Trainer:
 
         self.criterion = torch.nn.CrossEntropyLoss()
 
-    def train(self, rank, lock=None):
+    def train(self, rank):
         torch.manual_seed(self.args.seed)
 
         optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9)
@@ -156,7 +156,7 @@ class Trainer:
         )
         epoch_start = time.time()
         for epoch in range(1, self.args.epochs + 1):
-            train_acc, train_time, train_batch_time, train_corrects, throughput = self.train_epoch(epoch, train_loader, optimizer, scheduler, criterion, rank, lock)
+            train_acc, train_time, train_batch_time, train_corrects, throughput = self.train_epoch(epoch, train_loader, optimizer, scheduler, criterion, rank)
 
             valid_acc, valid_corrects, valid_time, val_batch_time = 0, 0, 0, 0
             #if epoch == self.args.epochs:
@@ -174,7 +174,7 @@ class Trainer:
 
 
 
-    def train_epoch(self, epoch, train_loader, optimizer, scheduler, criterion, rank, lock=None):
+    def train_epoch(self, epoch, train_loader, optimizer, scheduler, criterion, rank):
         epoch_time = time.time()
 
         scheduler.step()
@@ -220,9 +220,6 @@ class Trainer:
                 print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     pid, epoch, batch_idx * len(inputs), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader), loss.item()))
-
-            if self.shared_dataset:
-                self.shared_dataset.remove_batch(lock, batch_idx, pid)
 
         train_epoch_acc = train_running_corrects.double() / len(train_loader.dataset) * 100
 

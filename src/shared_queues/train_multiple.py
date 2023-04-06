@@ -90,7 +90,7 @@ def write_debug_indices(indices, debug_indices_path, args):
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def producer(loader, valid_loader, qs, device, args):
+def producer(loader, valid_loader, qs, device, args, producer_alive):
     pid = os.getpid()
     torch.manual_seed(args.seed)
     if args.debug_data_dir:
@@ -131,6 +131,7 @@ def producer(loader, valid_loader, qs, device, args):
         
         for q in qs:
             q.queue.put((0, None, None, epoch, "end", None))
+    producer_alive.wait()
 
 class MyQueue(object):
     def __init__(self, queue, index):
@@ -177,7 +178,7 @@ class Logger(object):
                 os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
 
 
-def worker(q, model, args):
+def worker(q, model, args, producer_alive):
     log_path, gpu_path = None, None
     if model.on_device == False:
         pid = os.getpid()
@@ -192,6 +193,8 @@ def worker(q, model, args):
         print("Skipping recording batch time for first batch!")
     
     debug_indices_path, debug_indices_val_path = None, None
+
+    epochs_processed = 0
 
     train_time, val_time, batch_time, items_processed = 0,0,0,0
     while True:
@@ -233,6 +236,12 @@ def worker(q, model, args):
             train_time, val_time, batch_time,items_processed = 0,0,0,0
 
         q.queue.task_done()
+
+        if batch_type == "end":
+            epochs_processed += 1
+            if epochs_processed == args.epochs:
+                producer_alive.set()
+                break
 
 if __name__ == "__main__":
 
@@ -295,6 +304,7 @@ if __name__ == "__main__":
         num_workers=args.training_workers,
         pin_memory=False,
         prefetch_factor=args.prefetch_factor,
+        persistent_workers=True,
     )
 
     valid_loader = D.DataLoader(
@@ -304,6 +314,7 @@ if __name__ == "__main__":
         num_workers=args.validation_workers,
         pin_memory=True,
         prefetch_factor=args.prefetch_factor,
+        persistent_workers=True,
     )
 
     args.train_dataset_len = len(train_loader.dataset)
@@ -313,6 +324,16 @@ if __name__ == "__main__":
     args.valid_loader_len = len(valid_loader)
 
     _start = time.time()
+
+    producer_alive = mp.Event()
+    producers = []
+    for i in range(1):
+        p = Process(target=producer, args = ((train_loader, valid_loader, queues, device, args, producer_alive)))
+        producers.append(p)
+        p.start()
+
+
+    workers = []
     for i in range(args.num_processes):
         if train_models[i].name == "resnet18_pretrained":
             #os.system(f"sudo echo set_active_thread_percentage {pid} 40 | sudo nvidia-cuda-mps-control")
@@ -320,17 +341,11 @@ if __name__ == "__main__":
         elif train_models[i].name == "resnet34_pretrained":
             #os.system(f"sudo echo set_active_thread_percentage {pid} 60 | sudo nvidia-cuda-mps-control")
             os.environ['CUDA_MPS_ACTIVE_THREAD_PERCENTAGE'] = "50"
-        p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args))).start()
-
-    producers = []
-    for i in range(1):
-        p = Process(target=producer, args = ((train_loader, valid_loader, queues, device, args)))
-        producers.append(p)
+        p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args, producer_alive)))
+        workers.append(p)
         p.start()
 
-    for p in producers:
+    for p in workers:
         p.join()
 
-    for q in queues:
-        q.queue.join()
     print(f"Completed in {time.time() - _start} seconds")

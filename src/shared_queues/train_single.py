@@ -99,4 +99,4 @@ if __name__ == "__main__":
 
     model_trainer = Trainer(args, model, device, dataset, train_transforms, valid_transforms)
 
-    model_trainer.train(-1, None)
+    model_trainer.train(-1)

@@ -123,7 +123,7 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
         
         for q in qs:
             q.queue.put((0, None, None, epoch, "end", None))
-    producer_alive.set()
+    producer_alive.wait()
 
 
 # Use this worker for setting MPS weights
@@ -200,9 +200,11 @@ def worker(q, model, args, producer_alive, mps_time=None):
     
     debug_indices_path, debug_indices_val_path = None, None
 
+    epochs_processed = 0
     train_time, val_time, batch_time, items_processed = 0,0,0,0
     big_start = time.time()
-    while not producer_alive.is_set():
+
+    while True:
         start = time.time()
         idx, inputs, labels, epoch, batch_type, indices = q.queue.get()
 
@@ -242,6 +244,12 @@ def worker(q, model, args, producer_alive, mps_time=None):
             big_start = time.time()
 
         q.queue.task_done()
+
+        if batch_type == "end":
+            epochs_processed += 1
+            if epochs_processed == args.epochs:
+                producer_alive.set()
+                break
 
 if __name__ == "__main__":
 
@@ -316,6 +324,7 @@ if __name__ == "__main__":
         num_workers=args.training_workers,
         pin_memory=False,
         prefetch_factor=args.prefetch_factor,
+        persistent_workers=True,
     )
 
     valid_loader = D.DataLoader(
@@ -325,6 +334,7 @@ if __name__ == "__main__":
         num_workers=args.validation_workers,
         pin_memory=True,
         prefetch_factor=args.prefetch_factor,
+        persistent_workers=True,
     )
 
     args.train_dataset_len = len(train_loader.dataset)
@@ -383,9 +393,7 @@ if __name__ == "__main__":
         workers.append(p)
         p.start()
 
-    for p in producers:
-        print("Producer finish ...")
+    for p in workers:
         p.join()
-    producer_alive.set()
 
     print(f"Completed in {time.time() - _start} seconds")
