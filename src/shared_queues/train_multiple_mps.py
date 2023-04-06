@@ -18,7 +18,7 @@ import random
 import time
 import os
 
-from shared.util import MyQueue, Logger, write_debug_indices
+from shared.util import MyQueue, Logger, write_debug_indices, Counter
 from shared.dataset import CarDataset, DatasetFromSubset
 from shared_queues.trainer import ProcTrainer
 from shared.mps import MPSWeights
@@ -107,7 +107,7 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
             write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
-        if epoch > 8:
+        if epoch > 10:
             if args.debug_data_dir:
                 debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / "producer_val_indices.txt"
                 debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
@@ -181,7 +181,7 @@ def MPS_worker(q, model, mps_weights, args, mps_time):
         
         q.queue.task_done()
 
-def worker(q, model, args, producer_alive, mps_time=None):
+def worker(q, model, args, producer_alive, finished_workers, mps_time=None):
     log_path, gpu_path, pid = None, None, 0
     if model.on_device == False:
         pid = os.getpid()
@@ -248,7 +248,9 @@ def worker(q, model, args, producer_alive, mps_time=None):
         if batch_type == "end":
             epochs_processed += 1
             if epochs_processed == args.epochs:
-                producer_alive.set()
+                finished_workers.increment()
+                if finished_workers.value() == args.num_processes:
+                    producer_alive.set()
                 break
 
 if __name__ == "__main__":
@@ -324,7 +326,7 @@ if __name__ == "__main__":
         num_workers=args.training_workers,
         pin_memory=False,
         prefetch_factor=args.prefetch_factor,
-        persistent_workers=True,
+        persistent_workers=False,
     )
 
     valid_loader = D.DataLoader(
@@ -332,9 +334,9 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.validation_workers,
-        pin_memory=True,
+        pin_memory=False,
         prefetch_factor=args.prefetch_factor,
-        persistent_workers=True,
+        persistent_workers=False,
     )
 
     args.train_dataset_len = len(train_loader.dataset)
@@ -385,11 +387,12 @@ if __name__ == "__main__":
     #print(f"Spent {mps_time['train_time']} seconds on training, {mps_time['batch_time']} seconds on batch time and {mps_time['misc_time']} seconds on misc MPS stuff")
     print(f"Done with figuring out MPS weights, took {mps_time} seconds")
 
+    finished_workers = Counter(0)
     workers = []
     for i in range(args.num_processes):
         print(f"Setting MPS threads to {mps_weights[i]}")
         os.environ['CUDA_MPS_ACTIVE_THREAD_PERCENTAGE'] = str(mps_weights[i])
-        p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args, producer_alive, mps_time)))
+        p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args, producer_alive, finished_workers, mps_time)))
         workers.append(p)
         p.start()
 

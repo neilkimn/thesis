@@ -20,6 +20,7 @@ import os
 
 from shared.dataset import CarDataset, DatasetFromSubset
 from shared_queues.trainer import ProcTrainer
+from shared.util import Counter
 
 INPUT_SIZE = 224
 root = Path(os.environ["DATA_PATH"])
@@ -115,7 +116,7 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
             write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
-        if epoch > 8:
+        if epoch > 10:
             if args.debug_data_dir:
                 debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / "producer_val_indices.txt"
                 debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
@@ -178,7 +179,7 @@ class Logger(object):
                 os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
 
 
-def worker(q, model, args, producer_alive):
+def worker(q, model, args, producer_alive, finished_workers):
     log_path, gpu_path = None, None
     if model.on_device == False:
         pid = os.getpid()
@@ -240,7 +241,9 @@ def worker(q, model, args, producer_alive):
         if batch_type == "end":
             epochs_processed += 1
             if epochs_processed == args.epochs:
-                producer_alive.set()
+                finished_workers.increment()
+                if finished_workers.value() == args.num_processes:
+                    producer_alive.set()
                 break
 
 if __name__ == "__main__":
@@ -302,7 +305,7 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.training_workers,
-        pin_memory=False,
+        pin_memory=True,
         prefetch_factor=args.prefetch_factor,
         persistent_workers=True,
     )
@@ -332,16 +335,10 @@ if __name__ == "__main__":
         producers.append(p)
         p.start()
 
-
+    finished_workers = Counter(0)
     workers = []
     for i in range(args.num_processes):
-        if train_models[i].name == "resnet18_pretrained":
-            #os.system(f"sudo echo set_active_thread_percentage {pid} 40 | sudo nvidia-cuda-mps-control")
-            os.environ['CUDA_MPS_ACTIVE_THREAD_PERCENTAGE'] = "50" # TODO: Change to weight-implementation
-        elif train_models[i].name == "resnet34_pretrained":
-            #os.system(f"sudo echo set_active_thread_percentage {pid} 60 | sudo nvidia-cuda-mps-control")
-            os.environ['CUDA_MPS_ACTIVE_THREAD_PERCENTAGE'] = "50"
-        p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args, producer_alive)))
+        p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args, producer_alive, finished_workers)))
         workers.append(p)
         p.start()
 

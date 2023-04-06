@@ -98,7 +98,7 @@ class Logger(object):
         #    self.val_time += self.mps_batch_time
         #    epoch_time += (self.mps_train_time + self.mps_batch_time + self.mps_misc_time)
         #    self.mps_train_time, self.mps_batch_time, self.mps_misc_time = 0,0,0
-        if self.mps_time and epoch == 0:
+        if self.mps_time and epoch == 1:
             epoch_time += self.mps_time
             self.mps_time = 0
 
