@@ -305,7 +305,7 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.training_workers,
-        pin_memory=True,
+        pin_memory=False,
         prefetch_factor=args.prefetch_factor,
         persistent_workers=True,
     )
