@@ -82,8 +82,8 @@ valid_transforms = transforms.Compose(
     ]
 )
 
-def producer(loader, valid_loader, qs, device, args, producer_alive):
-    pid = os.getpid()
+def producer(loader, valid_loader, qs, device, args, producer_alive, optimize_mps=None):
+
     torch.manual_seed(args.seed)
     if args.debug_data_dir:
         if args.overwrite_debug_data:
@@ -99,13 +99,24 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
             inputs = Variable(inputs.to(device))
             labels = Variable(labels.to(device))
 
-            for q in qs:
-                torch.cuda.nvtx.range_push(f"Put train batch")
-                q.queue.put((idx, inputs, labels, epoch, "train", indices))
-                torch.cuda.nvtx.range_pop()
-            
-            write_debug_indices(indices, debug_indices_path, args)
+            if optimize_mps:
+                if not optimize_mps.is_set():
+                    print("breaking out of loop")
+                    break
 
+            for q in qs:
+                if optimize_mps:
+                    if optimize_mps.is_set():
+                        q.queue.put((idx, inputs, labels, epoch, "train", indices))
+                else:
+                    q.queue.put((idx, inputs, labels, epoch, "train", indices))
+            
+
+            write_debug_indices(indices, debug_indices_path, args)
+        if optimize_mps:
+            if not optimize_mps.is_set():
+                print("breaking out of loop")
+                break
         # end of training for epoch, switch to eval
         if epoch > 10:
             if args.debug_data_dir:
@@ -123,11 +134,12 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
         
         for q in qs:
             q.queue.put((0, None, None, epoch, "end", None))
+    print("Waiting to exit producer ...")
     producer_alive.wait()
 
 
 # Use this worker for setting MPS weights
-def MPS_worker(q, model, mps_weights, args, mps_time):
+def MPS_worker(q, model, mps_weights, args, mps_time, empty_MPS_queue):
     alive = mp.Event()
     alive.set()
     proc_id = os.getpid()
@@ -159,8 +171,10 @@ def MPS_worker(q, model, mps_weights, args, mps_time):
 
             convergence = mps_weights.get_convergence()
 
-            # Terminate MPS weight-searching process
-            alive.clear()
+            # Terminate MPS weight-searching process, but only if we are not on the last started process
+            # On the last process, we empty the queue and then we can kill process
+            if not empty_MPS_queue.is_set():
+                alive.clear()
 
         if batch_type == "train":
             start = time.time()
@@ -179,6 +193,9 @@ def MPS_worker(q, model, mps_weights, args, mps_time):
         elif batch_type == "end":
             train_epoch_acc, train_running_corrects = model.end_epoch(args)
         
+        if q.queue.empty():
+            alive.clear()
+
         q.queue.task_done()
 
 def worker(q, model, args, producer_alive, finished_workers, mps_time=None):
@@ -292,19 +309,28 @@ if __name__ == "__main__":
         proc_model = ProcTrainer(args, model, device)
         train_models.append(proc_model)
 
+    MPSqueues = []
     queues = []
-    max_queue_size = 20
+    max_queue_size = 1
+    mps_queue_size = 20
+
     for idx in range(args.num_processes):
         q = JoinableQueue(maxsize=max_queue_size)
+        q_mps = JoinableQueue(maxsize=mps_queue_size)
+
         queue = MyQueue(q, idx)
+        MPSqueue = MyQueue(q_mps, idx)
+        
         queues.append(queue)
+        MPSqueues.append(MPSqueue)
+
 
     model_names = "_".join([model.name for model in train_models])
 
     mps_log_path = Path(f"/home/kafka/repos/thesis/logs/mps/mps_log_{model_names}_pid_{parent_pid}.csv")
-    print(f"Writing MPS logs to {mps_log_path}")
+    print(f"Writing MPS weight logs to {mps_log_path}")
     
-    mps_weights = MPSWeights(args.num_processes, max_size=max_queue_size, increment=4, update_interval=10, log_path=mps_log_path)
+    mps_weights = MPSWeights(args.num_processes, max_size=mps_queue_size, increment=4, update_interval=10, log_path=mps_log_path)
 
     """Split train and test"""
     train_len = int(0.7 * len(dataset))
@@ -345,18 +371,22 @@ if __name__ == "__main__":
     args.valid_dataset_len = len(valid_loader.dataset)
     args.valid_loader_len = len(valid_loader)
 
-    producer_alive = mp.Event()
+    #optimize_mps = True
+    optimize_mps = mp.Event()
+    optimize_mps.set()
+    MPS_producer_alive = mp.Event()
+
+    empty_MPS_queue = mp.Event()
 
     producers = []
     for i in range(1):
-        p = Process(target=producer, args = ((train_loader, valid_loader, queues, device, args, producer_alive)))
+        p = Process(target=producer, args = ((train_loader, valid_loader, MPSqueues, device, args, MPS_producer_alive, optimize_mps)))
         producers.append(p)
         p.start()
 
     # Measuring time for entire training
     _start = time.time()
 
-    restart = True
     # Measuring time spent on MPS stuff only
     mps_start =time.time()
 
@@ -364,21 +394,33 @@ if __name__ == "__main__":
     print("Started finding MPS thread weights...")
     
     logger = Logger(args)
-    while restart:
+    while optimize_mps.is_set():
         workers = []
         # Start training processes with default MPS percentages
         for i in range(args.num_processes):
             os.environ['CUDA_MPS_ACTIVE_THREAD_PERCENTAGE'] = str(mps_weights[i])
-            p = Process(target=MPS_worker, daemon=True, args=((queues[i], train_models[i], mps_weights, args, mps_time)))
+            p = Process(target=MPS_worker, daemon=True, args=((MPSqueues[i], train_models[i], mps_weights, args, mps_time, empty_MPS_queue)))
             workers.append(p)
             p.start()
 
         # Weight-search converged, stop restarting new processes
         if mps_weights.get_convergence():
-            restart = False
+            #optimize_mps = False
+            optimize_mps.clear()
+            empty_MPS_queue.set()
 
         for w in workers:
             w.join()
+
+    MPS_producer_alive.set()
+    producer_alive = mp.Event()
+
+    # Start new producer with queues with smaller size
+    producers = []
+    for i in range(1):
+        p = Process(target=producer, args = ((train_loader, valid_loader, queues, device, args, producer_alive)))
+        producers.append(p)
+        p.start()
     
     # TODO: Split this up into train, batch and misc. time. For now just add total MPS time to epoch time
     #total_mps_time = time.time() - mps_start
