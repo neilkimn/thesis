@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#SBATCH --job-name=dist-training    # Job name
+#SBATCH --output=job.%j.out      # Name of output file (%j expands to jobId)
+#SBATCH --cpus-per-task=16       # Schedule one core
+#SBATCH --gres=gpu:2               # Schedule a GPU
+#SBATCH --time=01:00:00          # Run time (hh:mm:ss) - run for one hour max
+#SBATCH --partition=brown    # Run on either the Red or Brown queue
+
+CUDA_VISIBLE_DEVICES=0,1
+
+echo "Running on $(hostname):"
+~/.conda/envs/thesis/bin/python /home/neni/repos/thesis/src/distributed/example.py --total_epochs 3 --save_every 1
