@@ -6,17 +6,12 @@ src/distributed_old/*
 debug_data/*
 data/*
 notes.md
-logs/queues/*
 setup.py
-logs/*
 run_mps.sh
-train_multiple_mps.sh
-train_multiple.sh
-train_single.sh
+train_*.sh
 notes.md
 
 logs/*
 logs_2/*
 logs_imagenet/*
 logs_bpf/*
-train_*.sh

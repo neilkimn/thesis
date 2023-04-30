@@ -23,7 +23,7 @@ class ProcTrainer:
 
         num_ftrs = self.model.fc.in_features  # num_ftrs = 2048
         print("features", num_ftrs, "classes", 431)
-        self.model.fc = torch.nn.Linear(num_ftrs, 431)
+        #self.model.fc = torch.nn.Linear(num_ftrs, 431)
 
         self.running_loss = 0.0
         self.train_running_corrects = 0
@@ -92,20 +92,17 @@ class ProcTrainer:
         return self.val_loss, self.val_acc, self.val_correct
 
 class Trainer:
-    def __init__(self, args, model, device, dataset, train_transforms, valid_transforms, shared_dataset=None):
+    def __init__(self, args, model, device, train_dataset, val_dataset, shared_dataset=None):
         self.args = args
 
         self.device = device
         self.model = model
-        num_ftrs = self.model.fc.in_features  # num_ftrs = 2048
-        print("features", num_ftrs, "classes", 431)
-        self.model.fc = torch.nn.Linear(num_ftrs, 431)
 
         self.model.to(device)
 
-        self.train_transforms = train_transforms
-        self.valid_transforms = valid_transforms
-        self.dataset = dataset
+        #self.train_transforms = train_transforms
+        #self.valid_transforms = valid_transforms
+        #self.dataset = dataset
         self.pid = os.getpid()
 
         self.shared_dataset = shared_dataset
@@ -120,12 +117,12 @@ class Trainer:
             os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,nounits -f {self.gpu_path}")
 
         """Split train and test"""
-        train_len = int(0.7 * len(dataset))
-        valid_len = len(dataset) - train_len
-        train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
+        #train_len = int(0.7 * len(dataset))
+        #valid_len = len(dataset) - train_len
+        #train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
 
-        self.train_set = DatasetFromSubset(train_set, self.train_transforms)
-        self.valid_set = DatasetFromSubset(valid_set, self.valid_transforms)
+        self.train_set = train_dataset
+        self.valid_set = val_dataset
 
         torch.manual_seed(self.args.seed)
         self.loader_valid = D.DataLoader(
@@ -193,15 +190,15 @@ class Trainer:
 
         for batch_idx in range(len(train_loader)):
             start_time = time.time()
-            (inputs, labels, indices) = next(loader_iter)
+            (inputs, labels) = next(loader_iter)
             end_time = time.time() - start_time
             batch_time += end_time
             inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
 
-            if self.args.debug_data_dir:
-                with open(debug_indices, "a") as f:
-                    f.write(" ".join(list(map(str, indices.tolist()))))
-                    f.write("\n")
+            #if self.args.debug_data_dir:
+                #with open(debug_indices, "a") as f:
+                    #f.write(" ".join(list(map(str, indices.tolist()))))
+                    #f.write("\n")
 
             optimizer.zero_grad()
 
@@ -253,7 +250,7 @@ class Trainer:
 
             for batch_idx in range(len(self.loader_valid)):
                 start_time = time.time()
-                (data, target, indices) = next(loader_iter)
+                (data, target) = next(loader_iter)
                 end_time = time.time() - start_time
                 batch_time += end_time
 
@@ -262,10 +259,10 @@ class Trainer:
                 pred = output.max(1)[1]
                 correct += pred.eq(target.to(self.device)).sum().item()
 
-                if self.args.debug_data_dir:
-                    with open(debug_indices, "a") as f:
-                        f.write(" ".join(list(map(str, indices.tolist()))))
-                        f.write("\n")
+                #if self.args.debug_data_dir:
+                    #with open(debug_indices, "a") as f:
+                        #f.write(" ".join(list(map(str, indices.tolist()))))
+                        #f.write("\n")
 
         test_loss /= len(self.loader_valid.dataset)
         test_acc = 100. * correct / len(self.loader_valid.dataset)
