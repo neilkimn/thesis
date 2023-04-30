@@ -14,3 +14,4 @@ train_multiple_mps.sh
 train_multiple.sh
 train_single.sh
 notes.md
+logs_2/*
