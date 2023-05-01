@@ -22,7 +22,7 @@ from torch.autograd import Variable
 NUM_DATALOADER_WORKERS = 1
 
 trainFilename = "data/train.txt"
-root = Path(os.environ["DATA_PATH"])
+root = Path(os.environ["DATA_PATH"]) / "compcars"
 trainFilename = root / "train.txt"
 
 def get_labels():

@@ -141,3 +141,53 @@ def write_debug_indices(indices, debug_indices_path, args):
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+from torchvision import transforms
+import torch
+
+def get_transformations(dataset, input_size):
+    if dataset == "compcars":
+        train_transforms = transforms.Compose(
+            [
+                transforms.Resize((input_size, input_size)),
+                transforms.RandomVerticalFlip(p=0.5),
+                transforms.RandomPerspective(p=0.5),
+
+                transforms.RandomApply(torch.nn.ModuleList([
+                    transforms.ColorJitter(contrast=0.5, saturation=0.5, hue=0.5),
+                ]), p=0.5),
+
+                transforms.RandomApply(torch.nn.ModuleList([
+                    transforms.Grayscale(num_output_channels=3),
+                ]), p=0.5),
+
+                transforms.ToTensor(),
+            ]
+        )
+
+        valid_transforms = transforms.Compose(
+            [
+                transforms.Resize((input_size, input_size)),
+                transforms.ToTensor(),
+            ]
+        )
+
+    elif dataset == "imagenet":
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+
+        train_transforms = transforms.Compose([
+                transforms.RandomResizedCrop(input_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                normalize,
+            ])
+
+        valid_transforms = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(input_size),
+                transforms.ToTensor(),
+                normalize,
+            ])
+    return train_transforms, valid_transforms
+

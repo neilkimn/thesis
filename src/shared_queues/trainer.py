@@ -23,7 +23,8 @@ class ProcTrainer:
 
         num_ftrs = self.model.fc.in_features  # num_ftrs = 2048
         print("features", num_ftrs, "classes", 431)
-        #self.model.fc = torch.nn.Linear(num_ftrs, 431)
+        if self.args.dataset == "compcars":
+            self.model.fc = torch.nn.Linear(num_ftrs, 431)
 
         self.running_loss = 0.0
         self.train_running_corrects = 0
