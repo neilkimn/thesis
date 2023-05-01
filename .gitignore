@@ -20,3 +20,5 @@ logs_2/*
 logs_imagenet/*
 logs_bpf/*
 train_*.sh
+train_multiple.sh
+train_single.sh
