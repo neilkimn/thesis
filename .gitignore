@@ -15,3 +15,4 @@ train_multiple.sh
 train_single.sh
 notes.md
 logs_2/*
+logs_imagenet/*
