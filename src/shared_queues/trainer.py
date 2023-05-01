@@ -178,6 +178,7 @@ class Trainer:
         self.model.train(True)
         pid = os.getpid()
         running_loss = 0.0
+        running_time = epoch_time
         train_running_corrects = 0
         batch_time = 0
 
@@ -214,9 +215,12 @@ class Trainer:
             running_loss += loss.item()
 
             if batch_idx % self.args.log_interval == 0:
-                print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} Throughput [img/s]: {:.1f}'.format(
                     pid, epoch, batch_idx * len(inputs), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss.item()))
+                    100. * batch_idx / len(train_loader), loss.item(), (batch_idx * len(inputs) / (time.time() - epoch_time)) ))
+                if self.args.log_path:
+                    with open(self.args.log_path / f"{self.model.name}_pid_{self.pid}_output.csv", "a") as f:
+                        f.write(f"{pid}\tTrain Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} ({round(100. * batch_idx / len(train_loader),2)}%)]\tLoss: {round(loss.item(),2)} Throughput [img/s]: {round(batch_idx * len(inputs) / (time.time() - epoch_time), 2)}\n")
 
         train_epoch_acc = train_running_corrects.double() / len(train_loader.dataset) * 100
 
