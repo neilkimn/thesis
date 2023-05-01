@@ -14,3 +14,8 @@ train_multiple_mps.sh
 train_multiple.sh
 train_single.sh
 notes.md
+
+logs/*
+logs_2/*
+logs_imagenet/*
+logs_bpf/*
