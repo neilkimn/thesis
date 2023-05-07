@@ -11,23 +11,26 @@ import random
 import os
 from torch.utils import data as D
 from shared.dataset import CarDataset, DatasetFromSubset
-from shared_queues.trainer import Trainer
+from shared_queues.trainer import Trainer, NaiveTrainer
 from shared.util import get_transformations
 
 INPUT_SIZE = 224
 data_path = Path(os.environ["DATA_PATH"])
 
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
-my_datasets = ["compcars", "imagenet"]
+my_datasets = ["compcars", "imagenet", "imagenet64x64"]
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch-size', type=int, default=80)
 parser.add_argument('--training-workers', type=int, default=1)
 parser.add_argument('--validation-workers', type=int, default=1)
 parser.add_argument('--prefetch-factor', type=int, default=1)
-parser.add_argument('--seed', type=int, default=1234)
+parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--epochs', type=int, default=5)
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
@@ -44,6 +47,8 @@ parser.add_argument('--debug_data_dir', metavar='DIR', nargs='?', default='',
 parser.add_argument('--log_path', metavar='LOG_PATH', nargs='?', default='',
                     help='path to store training log')
 parser.add_argument('--pretrained', action='store_true', help="use pretrained model")
+
+
 
 if __name__ == "__main__":
 
@@ -62,13 +67,16 @@ if __name__ == "__main__":
     pretrained = "imagenet" if args.pretrained else None
 
     device = torch.device("cuda")
-
+    
     """Initialise dataset"""
+    if args.dataset == "imagenet64x64":
+        INPUT_SIZE = 64
+    
     train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
 
-    if args.dataset == "imagenet":
-        traindir = os.path.join(data_path / "imagenet", 'train')
-        valdir = os.path.join(data_path / "imagenet", 'val')
+    if args.dataset in ["imagenet", "imagenet64x64"]:
+        traindir = os.path.join(data_path / args.dataset, 'train')
+        valdir = os.path.join(data_path / args.dataset, 'val')
 
         train_dataset = datasets.ImageFolder(
             traindir,
@@ -90,12 +98,15 @@ if __name__ == "__main__":
 
         train_dataset = DatasetFromSubset(train_set, train_transforms)
         valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+    else:
+        raise Exception(f"Dataset: {args.dataset} does not exist")
 
     model = torchvision.models.__dict__[args.arch](pretrained=pretrained)
     model.name = args.arch + "_pretrained" if pretrained else args.arch
-
+    model.to(device)
     print(f"PID: {os.getpid()}, Model: {model.name}")
 
     model_trainer = Trainer(args, model, device, train_dataset, valid_dataset)
+    #model_trainer = NaiveTrainer(args, model, device, train_dataset, valid_dataset)
 
     model_trainer.train(-1)

@@ -15,3 +15,5 @@ logs/*
 logs_2/*
 logs_imagenet/*
 logs_bpf/*
+logs_all/*
+logs_debug/*

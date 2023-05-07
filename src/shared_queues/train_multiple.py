@@ -61,7 +61,8 @@ def count_parameters(model):
 
 def producer(loader, valid_loader, qs, device, args, producer_alive):
     pid = os.getpid()
-    torch.manual_seed(args.seed)
+    if args.seed:
+        torch.manual_seed(args.seed)
     if args.debug_data_dir:
         if args.overwrite_debug_data:
             shutil.rmtree(args.debug_data_dir)
@@ -69,7 +70,7 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
 
     for epoch in range(1, args.epochs+1):
         if args.debug_data_dir:
-            debug_indices_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / "producer_indices.txt"
+            debug_indices_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_indices.txt"
             debug_indices_path.parent.mkdir(parents=True, exist_ok=True)
 
         for idx, (inputs, labels) in enumerate(loader):
@@ -82,12 +83,12 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
                 q.queue.put((idx, inputs, labels, epoch, "train", indices))
                 torch.cuda.nvtx.range_pop()
             
-            write_debug_indices(indices, debug_indices_path, args)
+            #write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
         if epoch > 10:
             if args.debug_data_dir:
-                debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / "producer_val_indices.txt"
+                debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_val_indices.txt"
                 debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
 
             for idx, (inputs, labels) in enumerate(valid_loader):
@@ -98,7 +99,7 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
                 for q in qs:
                     q.queue.put((idx, inputs, labels, epoch, "valid", indices))
 
-                write_debug_indices(indices, debug_indices_val_path, args)
+                #write_debug_indices(indices, debug_indices_val_path, args)
         
         for q in qs:
             q.queue.put((0, None, None, epoch, "end", None))
@@ -145,14 +146,14 @@ class Logger(object):
         print(f"{self.pid} Epoch {epoch} end: {round(epoch_time,1)}s, Train accuracy: {round(train_acc,2)}")
         if self.args.log_dir:
             with open(self.log_path, "a") as f:
-                f.write(f"{epoch},{train_acc},{self.val_acc},{self.train_time},{self.batch_time},{self.val_time},{epoch_time},{train_running_corrects},{self.val_correct}\n")
+                f.write(f"{int(time.time())},{epoch},{train_acc},{self.val_acc},{self.train_time},{self.batch_time},{self.val_time},{epoch_time},{train_running_corrects},{self.val_correct}\n")
                 os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
 
 
 def worker(q, model, args, producer_alive, finished_workers):
+    pid = os.getpid()
     log_path, gpu_path = None, None
     if model.on_device == False:
-        pid = os.getpid()
         print(f"{pid}\tTraining model: {model.name}")
         model.send_model()
         model.scheduler.step()
@@ -175,9 +176,9 @@ def worker(q, model, args, producer_alive, finished_workers):
         idx, inputs, labels, epoch, batch_type, indices = q.queue.get()
 
         if args.debug_data_dir:
-            debug_indices_path = Path(args.debug_data_dir) / model.name / f"epoch_{epoch}" / "indices.txt"
+            debug_indices_path = Path(args.debug_data_dir) / model.name / f"{pid}_epoch_{epoch}" / "indices.txt"
             debug_indices_path.parent.mkdir(parents=True, exist_ok=True)
-            debug_indices_val_path = Path(args.debug_data_dir) / model.name / f"epoch_{epoch}" / "val_indices.txt"
+            debug_indices_val_path = Path(args.debug_data_dir) / model.name / f"{pid}_epoch_{epoch}" / "val_indices.txt"
             debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
 
         if args.record_first_batch_time:
@@ -188,14 +189,20 @@ def worker(q, model, args, producer_alive, finished_workers):
 
         start = time.time()
         if batch_type == "train":
-            write_debug_indices(indices, debug_indices_path, args)
+            #write_debug_indices(indices, debug_indices_path, args)
+
+            #inputs = Variable(inputs.to(args.device))
+            #labels = Variable(labels.to(args.device))
             loss = model.forward(inputs, labels)
             items_processed += len(inputs)
             train_time += time.time() - start
             logger.log_train_interval(idx, epoch, len(inputs), loss, items_processed, train_time, batch_time)
 
         elif batch_type == "valid":
-            write_debug_indices(indices, debug_indices_val_path, args)
+            #write_debug_indices(indices, debug_indices_val_path, args)
+
+            #inputs = Variable(inputs.to(args.device))
+            #labels = Variable(labels.to(args.device))
             val_loss, val_acc, val_correct = model.validate(inputs, labels)
             val_time += time.time() - start
             logger.log_validation(val_loss, val_correct, val_acc, val_time)
@@ -267,26 +274,6 @@ if __name__ == "__main__":
 
         train_dataset = DatasetFromSubset(train_set, train_transforms)
         valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
-    
-    train_loader = D.DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.training_workers,
-        pin_memory=False,
-        prefetch_factor=args.prefetch_factor,
-        persistent_workers=True,
-    )
-
-    valid_loader = D.DataLoader(
-        valid_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.validation_workers,
-        pin_memory=True,
-        prefetch_factor=args.prefetch_factor,
-        persistent_workers=True,
-    )
 
     train_models = []
     for idx, arch in enumerate(args.arch):
@@ -298,7 +285,7 @@ if __name__ == "__main__":
 
     queues = []
     for idx in range(args.num_processes):
-        q = JoinableQueue(maxsize=1)
+        q = JoinableQueue(maxsize=10)
         queue = MyQueue(q, idx)
         queues.append(queue)
 
@@ -308,21 +295,43 @@ if __name__ == "__main__":
         train_dataset = datasets.FakeData(11336, (3, 224, 224), 431, train_transforms)
         val_dataset = datasets.FakeData(4680, (3, 224, 224), 431, valid_transforms)
 
-    args.train_dataset_len = len(train_loader.dataset)
-    args.train_loader_len = len(train_loader)
-
-    args.valid_dataset_len = len(valid_loader.dataset)
-    args.valid_loader_len = len(valid_loader)
-
     _start = time.time()
 
     producer_alive = mp.Event()
     producers = []
     for i in range(1):
+        train_loader = D.DataLoader(
+            train_dataset,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=args.training_workers,
+            pin_memory=False,
+            prefetch_factor=args.prefetch_factor,
+            persistent_workers=True,
+        )
+
+        valid_loader = D.DataLoader(
+            valid_dataset,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=args.validation_workers,
+            pin_memory=True,
+            prefetch_factor=args.prefetch_factor,
+            persistent_workers=True,
+        )
+
+        args.train_dataset_len = len(train_loader.dataset)
+        args.train_loader_len = len(train_loader)
+
+        args.valid_dataset_len = len(valid_loader.dataset)
+        args.valid_loader_len = len(valid_loader)
+
+        #p = Process(target=producer, args = ((train_loader, valid_loader, [queues[i]], device, args, producer_alive)))
         p = Process(target=producer, args = ((train_loader, valid_loader, queues, device, args, producer_alive)))
         producers.append(p)
         p.start()
 
+    args.device = device
     finished_workers = Counter(0)
     workers = []
     for i in range(args.num_processes):
