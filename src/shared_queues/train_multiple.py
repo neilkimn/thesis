@@ -285,7 +285,7 @@ if __name__ == "__main__":
 
     queues = []
     for idx in range(args.num_processes):
-        q = JoinableQueue(maxsize=10)
+        q = JoinableQueue(maxsize=1)
         queue = MyQueue(q, idx)
         queues.append(queue)
 

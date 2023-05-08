@@ -1,0 +1,17 @@
+name: pt
+channels:
+  - pytorch
+  - nvidia
+dependencies:
+  - python=3.9
+  - pip
+  - pytorch-cuda=11.7
+  - boto3
+  - pip:
+    - mlflow>=1.0
+    - tensorboardX
+    - psutil
+    - --extra-index-url https://download.pytorch.org/whl/cu117
+    - torch==1.13.1+cu117
+    - torchvision==0.14.1+cu117
+    - torchaudio==0.13.1

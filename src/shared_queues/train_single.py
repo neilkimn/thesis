@@ -1,3 +1,4 @@
+import time
 import ads3
 import torch
 import torch.backends.cudnn as cudnn
@@ -66,7 +67,8 @@ if __name__ == "__main__":
 
     pretrained = "imagenet" if args.pretrained else None
 
-    device = torch.device("cuda")
+    #device = torch.device("cuda")
+    device = "cuda:0"
     
     """Initialise dataset"""
     if args.dataset == "imagenet64x64":
@@ -105,8 +107,12 @@ if __name__ == "__main__":
     model.name = args.arch + "_pretrained" if pretrained else args.arch
     model.to(device)
     print(f"PID: {os.getpid()}, Model: {model.name}")
+    
+    _start = time.time()
 
     model_trainer = Trainer(args, model, device, train_dataset, valid_dataset)
     #model_trainer = NaiveTrainer(args, model, device, train_dataset, valid_dataset)
 
     model_trainer.train(-1)
+
+    print(f"Completed in {time.time() - _start} seconds")
