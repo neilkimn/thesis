@@ -24,7 +24,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
-my_datasets = ["compcars", "imagenet", "imagenet64x64"]
+my_datasets = ["compcars", "imagenet", "imagenet64x64", "imagenet128x128"]
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch-size', type=int, default=80)
@@ -59,7 +59,7 @@ if __name__ == "__main__":
         print(f"Setting seed {args.seed}")
         random.seed(args.seed)
         torch.manual_seed(args.seed)
-        cudnn.deterministic = True
+        cudnn.deterministic = False
         cudnn.benchmark = False
         print('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
@@ -73,10 +73,12 @@ if __name__ == "__main__":
     """Initialise dataset"""
     if args.dataset == "imagenet64x64":
         INPUT_SIZE = 64
+    if args.dataset == "imagenet128x128":
+        INPUT_SIZE = 128
     
     train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
 
-    if args.dataset in ["imagenet", "imagenet64x64"]:
+    if args.dataset in ["imagenet", "imagenet64x64", "imagenet128x128"]:
         traindir = os.path.join(data_path / args.dataset, 'train')
         valdir = os.path.join(data_path / args.dataset, 'val')
 

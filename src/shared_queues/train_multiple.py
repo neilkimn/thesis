@@ -25,6 +25,9 @@ from shared.util import Counter, get_transformations, write_debug_indices
 INPUT_SIZE = 224
 data_path = Path(os.environ["DATA_PATH"])
 
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -75,13 +78,17 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
 
         for idx, (inputs, labels) in enumerate(loader):
             indices = None
+            #print("Before memcpy:", torch.cuda.memory_allocated())
             inputs = Variable(inputs.to(device))
             labels = Variable(labels.to(device))
+            #print("After memcpy:", torch.cuda.memory_allocated())
 
             for q in qs:
-                torch.cuda.nvtx.range_push(f"Put train batch")
                 q.queue.put((idx, inputs, labels, epoch, "train", indices))
-                torch.cuda.nvtx.range_pop()
+
+            #print("After queue ...")
+            #print(torch.cuda.memory_allocated())
+            #time.sleep(20)
             
             #write_debug_indices(indices, debug_indices_path, args)
 
@@ -191,8 +198,6 @@ def worker(q, model, args, producer_alive, finished_workers):
         if batch_type == "train":
             #write_debug_indices(indices, debug_indices_path, args)
 
-            #inputs = Variable(inputs.to(args.device))
-            #labels = Variable(labels.to(args.device))
             loss = model.forward(inputs, labels)
             items_processed += len(inputs)
             train_time += time.time() - start
@@ -201,8 +206,6 @@ def worker(q, model, args, producer_alive, finished_workers):
         elif batch_type == "valid":
             #write_debug_indices(indices, debug_indices_val_path, args)
 
-            #inputs = Variable(inputs.to(args.device))
-            #labels = Variable(labels.to(args.device))
             val_loss, val_acc, val_correct = model.validate(inputs, labels)
             val_time += time.time() - start
             logger.log_validation(val_loss, val_correct, val_acc, val_time)
@@ -245,13 +248,14 @@ if __name__ == "__main__":
 
     device = torch.device("cuda")
 
+    if args.dataset == "imagenet64x64":
+        INPUT_SIZE = 64
+    
     train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
 
-    """Initialise dataset"""
-
-    if args.dataset == "imagenet":
-        traindir = os.path.join(data_path / "imagenet", 'train')
-        valdir = os.path.join(data_path / "imagenet", 'val')
+    if args.dataset in ["imagenet", "imagenet64x64"]:
+        traindir = os.path.join(data_path / args.dataset, 'train')
+        valdir = os.path.join(data_path / args.dataset, 'val')
 
         train_dataset = datasets.ImageFolder(
             traindir,
@@ -260,7 +264,6 @@ if __name__ == "__main__":
         valid_dataset = datasets.ImageFolder(
             valdir,
             valid_transforms)
-        
 
     elif args.dataset == "compcars":
         labels = ads3.get_labels()
@@ -285,7 +288,7 @@ if __name__ == "__main__":
 
     queues = []
     for idx in range(args.num_processes):
-        q = JoinableQueue(maxsize=1)
+        q = JoinableQueue(maxsize=4)
         queue = MyQueue(q, idx)
         queues.append(queue)
 

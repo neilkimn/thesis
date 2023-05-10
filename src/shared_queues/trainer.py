@@ -343,7 +343,7 @@ class Trainer:
 
             if self.args.log_path:
                 with open(self.args.log_path / f"{self.model.name}_pid_{self.pid}.csv", "a") as f:
-                    f.write(f"{int(time.time())},{epoch},{train_acc},{valid_acc},{train_time},{valid_time},{total_batch_time},{total_time},{train_corrects},{valid_corrects},{throughput}\n")
+                    f.write(f"{int(time.time())},{epoch},{train_acc},{valid_acc},{train_time},{total_batch_time},{valid_time},{total_time},{train_corrects},{valid_corrects},{throughput}\n")
                 os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
 
     def train_epoch(self, epoch, train_loader, optimizer, scheduler, criterion):
@@ -367,10 +367,11 @@ class Trainer:
         for batch_idx in range(len(train_loader)):
             start_time = time.time()
             (inputs, labels) = next(loader_iter)
+            
+            inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
             end_time = time.time() - start_time
             batch_time += end_time
-            inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
-
+            print(f"Took {end_time} s to get next batch + memcpy")
             #if self.args.debug_data_dir:
             #    with open(debug_indices, "a") as f:
             #        f.write(" ".join(list(map(str, indices.tolist()))))
@@ -391,9 +392,9 @@ class Trainer:
             running_loss += loss.item()
 
             if batch_idx % self.args.log_interval == 0:
-                print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} Throughput [img/s]: {:.1f}'.format(
+                print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} Throughput [img/s]: {:.1f} Data time {:.1f}'.format(
                     pid, epoch, batch_idx * len(inputs), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss.item(), (batch_idx * len(inputs) / (time.time() - epoch_time)) ))
+                    100. * batch_idx / len(train_loader), loss.item(), (batch_idx * len(inputs) / (time.time() - epoch_time)), batch_time ))
                 if self.args.log_path:
                     with open(self.args.log_path / f"{self.model.name}_pid_{self.pid}_output.csv", "a") as f:
                         f.write(f"{pid}\tTrain Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} ({round(100. * batch_idx / len(train_loader),2)}%)]\tLoss: {round(loss.item(),2)} Throughput [img/s]: {round(batch_idx * len(inputs) / (time.time() - epoch_time), 2)}\n")
