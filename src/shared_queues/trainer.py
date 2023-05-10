@@ -288,10 +288,11 @@ class Trainer:
         if self.args.log_path:
             self.args.log_path = Path(self.args.log_path)
             self.args.log_path.mkdir(parents=True, exist_ok=True)
-            with open(self.args.log_path / f"{self.model.name}_pid_{self.pid}.csv", "w") as f:
+            self.args.log_name = f"{self.model.name}_bs{self.args.batch_size}_{self.args.training_workers}tw_{self.args.validation_workers}vw_pid_{self.pid}"
+            with open(self.args.log_path / f"{self.args.log_name}.csv", "w") as f:
                 f.write("timestamp,epoch,train_acc,valid_acc,train_time,batch_time,valid_time,total_time,train_corr,valid_corr,throughput\n")
                 f.write(f"{int(time.time())},0,0.0,0.0,0.0,0.0,0.0,0.0,0,0,0\n")
-            self.gpu_path = self.args.log_path / f"{self.model.name}_pid_{self.pid}_gpu_util.csv"
+            self.gpu_path = self.args.log_path / f"{self.args.log_name}_gpu_util.csv"
             os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,nounits -f {self.gpu_path}")
 
         """Split train and test"""
@@ -342,7 +343,7 @@ class Trainer:
             epoch_start = time.time()
 
             if self.args.log_path:
-                with open(self.args.log_path / f"{self.model.name}_pid_{self.pid}.csv", "a") as f:
+                with open(self.args.log_path / f"{self.args.log_name}.csv", "a") as f:
                     f.write(f"{int(time.time())},{epoch},{train_acc},{valid_acc},{train_time},{total_batch_time},{valid_time},{total_time},{train_corrects},{valid_corrects},{throughput}\n")
                 os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
 
@@ -371,7 +372,7 @@ class Trainer:
             inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
             end_time = time.time() - start_time
             batch_time += end_time
-            print(f"Took {end_time} s to get next batch + memcpy")
+            #print(f"Took {end_time} s to get next batch + memcpy")
             #if self.args.debug_data_dir:
             #    with open(debug_indices, "a") as f:
             #        f.write(" ".join(list(map(str, indices.tolist()))))
@@ -396,7 +397,7 @@ class Trainer:
                     pid, epoch, batch_idx * len(inputs), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader), loss.item(), (batch_idx * len(inputs) / (time.time() - epoch_time)), batch_time ))
                 if self.args.log_path:
-                    with open(self.args.log_path / f"{self.model.name}_pid_{self.pid}_output.csv", "a") as f:
+                    with open(self.args.log_path / f"{self.args.log_name}_output.csv", "a") as f:
                         f.write(f"{pid}\tTrain Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} ({round(100. * batch_idx / len(train_loader),2)}%)]\tLoss: {round(loss.item(),2)} Throughput [img/s]: {round(batch_idx * len(inputs) / (time.time() - epoch_time), 2)}\n")
 
         train_epoch_acc = train_running_corrects.double() / len(train_loader.dataset) * 100

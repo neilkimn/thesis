@@ -31,7 +31,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
-my_datasets = ["compcars", "imagenet"]
+my_datasets = ["compcars", "imagenet", "imagenet64x64"]
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch-size', type=int, default=80)
@@ -288,7 +288,7 @@ if __name__ == "__main__":
 
     queues = []
     for idx in range(args.num_processes):
-        q = JoinableQueue(maxsize=4)
+        q = JoinableQueue(maxsize=1)
         queue = MyQueue(q, idx)
         queues.append(queue)
 
