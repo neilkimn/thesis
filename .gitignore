@@ -17,3 +17,4 @@ logs_imagenet/*
 logs_bpf/*
 logs_all/*
 logs_debug/*
+logs_dali/*
