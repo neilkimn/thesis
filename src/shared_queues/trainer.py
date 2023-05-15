@@ -272,11 +272,12 @@ class NaiveTrainer:
 
 
 class Trainer:
-    def __init__(self, args, model, device, train_dataset, val_dataset):
+    def __init__(self, args, model, device, train_dataset=None, val_dataset=None, train_loader=None, valid_loader=None):
         self.args = args
 
         self.device = device
         self.model = model
+        self.dali = False
         if args.dataset == "compcars":
             num_ftrs = self.model.fc.in_features  # num_ftrs = 2048
             self.model.fc = torch.nn.Linear(num_ftrs, 431)
@@ -301,14 +302,28 @@ class Trainer:
 
         if self.args.seed:
             torch.manual_seed(self.args.seed)
-        self.loader_valid = D.DataLoader(
-            self.valid_set,
-            batch_size=self.args.batch_size,
-            shuffle=True,
-            num_workers=self.args.validation_workers,
-            pin_memory=True,
-            prefetch_factor=self.args.prefetch_factor,
-        )
+        if train_dataset and val_dataset:
+            self.train_loader = D.DataLoader(
+                self.train_set,
+                batch_size=self.args.batch_size,
+                shuffle=True,
+                num_workers=self.args.training_workers,
+                pin_memory=True,
+                prefetch_factor=self.args.prefetch_factor,
+                persistent_workers=True,
+            )
+            self.valid_loader = D.DataLoader(
+                self.valid_set,
+                batch_size=self.args.batch_size,
+                shuffle=True,
+                num_workers=self.args.validation_workers,
+                pin_memory=True,
+                prefetch_factor=self.args.prefetch_factor,
+            )
+        if train_loader:
+            self.train_loader = train_loader
+            self.valid_loader = valid_loader
+            self.dali = True
         
         self.criterion = torch.nn.CrossEntropyLoss()
 
@@ -320,18 +335,10 @@ class Trainer:
         optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9)
         scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
         criterion = torch.nn.CrossEntropyLoss()
-        train_loader = D.DataLoader(
-            self.train_set,
-            batch_size=self.args.batch_size,
-            shuffle=True,
-            num_workers=self.args.training_workers,
-            pin_memory=True,
-            prefetch_factor=self.args.prefetch_factor,
-            persistent_workers=True,
-        )
+        
         epoch_start = time.time()
         for epoch in range(1, self.args.epochs + 1):
-            train_acc, train_time, train_batch_time, train_corrects, throughput = self.train_epoch(epoch, train_loader, optimizer, scheduler, criterion)
+            train_acc, train_time, train_batch_time, train_corrects, throughput = self.train_epoch(epoch, self.train_loader, optimizer, scheduler, criterion)
 
             valid_acc, valid_corrects, valid_time, val_batch_time = 0, 0, 0, 0
             #if epoch == self.args.epochs:
@@ -363,42 +370,71 @@ class Trainer:
             debug_indices = Path(self.args.debug_data_dir) / f"{pid}_epoch_{epoch}" / "indices.txt"
             debug_indices.parent.mkdir(parents=True, exist_ok=True)
 
-        loader_iter = iter(train_loader)
+        if not self.dali:
+            loader_iter = iter(train_loader)
 
-        for batch_idx in range(len(train_loader)):
-            start_time = time.time()
-            (inputs, labels) = next(loader_iter)
-            
-            inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
-            end_time = time.time() - start_time
-            batch_time += end_time
-            #print(f"Took {end_time} s to get next batch + memcpy")
-            #if self.args.debug_data_dir:
-            #    with open(debug_indices, "a") as f:
-            #        f.write(" ".join(list(map(str, indices.tolist()))))
-            #        f.write("\n")
+            for batch_idx in range(len(train_loader)):
+                start_time = time.time()
+                (inputs, labels) = next(loader_iter)
 
-            optimizer.zero_grad()
+                inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
+                end_time = time.time() - start_time
+                batch_time += end_time
 
-            outputs = self.model.forward(inputs)
+                optimizer.zero_grad()
 
-            loss = criterion(outputs, labels)
-            preds = torch.max(outputs, 1)[1]
+                outputs = self.model.forward(inputs)
 
-            train_running_corrects += torch.sum(preds == labels.data)
+                loss = criterion(outputs, labels)
+                preds = torch.max(outputs, 1)[1]
 
-            loss.backward()
-            optimizer.step()
+                train_running_corrects += torch.sum(preds == labels.data)
 
-            running_loss += loss.item()
+                loss.backward()
+                optimizer.step()
 
-            if batch_idx % self.args.log_interval == 0:
-                print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} Throughput [img/s]: {:.1f} Data time {:.1f}'.format(
-                    pid, epoch, batch_idx * len(inputs), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss.item(), (batch_idx * len(inputs) / (time.time() - epoch_time)), batch_time ))
-                if self.args.log_path:
-                    with open(self.args.log_path / f"{self.args.log_name}_output.csv", "a") as f:
-                        f.write(f"{pid}\tTrain Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} ({round(100. * batch_idx / len(train_loader),2)}%)]\tLoss: {round(loss.item(),2)} Throughput [img/s]: {round(batch_idx * len(inputs) / (time.time() - epoch_time), 2)}\n")
+                running_loss += loss.item()
+
+                if batch_idx % self.args.log_interval == 0:
+                    print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} Throughput [img/s]: {:.1f} Data time {:.1f}'.format(
+                        pid, epoch, batch_idx * len(inputs), len(train_loader.dataset),
+                        100. * batch_idx / len(train_loader), loss.item(), (batch_idx * len(inputs) / (time.time() - epoch_time)), batch_time ))
+                    if self.args.log_path:
+                        with open(self.args.log_path / f"{self.args.log_name}_output.csv", "a") as f:
+                            f.write(f"{pid}\tTrain Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} ({round(100. * batch_idx / len(train_loader),2)}%)]\tLoss: {round(loss.item(),2)} Throughput [img/s]: {round(batch_idx * len(inputs) / (time.time() - epoch_time), 2)}\n")
+        
+        else:
+            for batch_idx, data in enumerate(self.train_loader.dataset):
+                start_time = time.time()
+                inputs, labels = data[0]["data"], data[0]["label"]
+                labels = labels.long()
+                inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
+
+                end_time = time.time() - start_time
+                batch_time += end_time
+
+                optimizer.zero_grad()
+
+                outputs = self.model.forward(inputs)
+
+                loss = criterion(outputs, labels)
+                preds = torch.max(outputs, 1)[1]
+
+                train_running_corrects += torch.sum(preds == labels.data)
+
+                loss.backward()
+                optimizer.step()
+
+                running_loss += loss.item()
+
+                if batch_idx % self.args.log_interval == 0:
+                    print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} Throughput [img/s]: {:.1f} Data time {:.1f}'.format(
+                        pid, epoch, batch_idx * len(inputs), len(train_loader.dataset),
+                        100. * batch_idx / len(train_loader), loss.item(), (batch_idx * len(inputs) / (time.time() - epoch_time)), batch_time ))
+                    if self.args.log_path:
+                        with open(self.args.log_path / f"{self.args.log_name}_output.csv", "a") as f:
+                            f.write(f"{pid}\tTrain Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} ({round(100. * batch_idx / len(train_loader),2)}%)]\tLoss: {round(loss.item(),2)} Throughput [img/s]: {round(batch_idx * len(inputs) / (time.time() - epoch_time), 2)}\n")
+
 
         train_epoch_acc = train_running_corrects.double() / len(train_loader.dataset) * 100
 
@@ -424,28 +460,41 @@ class Trainer:
             debug_indices.parent.mkdir(parents=True, exist_ok=True)
 
         with torch.no_grad():
-            loader_iter = iter(self.loader_valid)
+            if not self.dali:
+                loader_iter = iter(self.valid_loader)
 
-            for batch_idx in range(len(self.loader_valid)):
-                start_time = time.time()
-                (data, target) = next(loader_iter)
-                end_time = time.time() - start_time
-                batch_time += end_time
+                for batch_idx in range(len(self.valid_loader)):
+                    start_time = time.time()
+                    
+                    (inputs, target) = next(loader_iter)
+                    
+                    end_time = time.time() - start_time
+                    batch_time += end_time
 
-                output = self.model(data.to(self.device))
-                test_loss += self.criterion(output, target.to(self.device)).item()
-                pred = output.max(1)[1]
-                correct += pred.eq(target.to(self.device)).sum().item()
+                    output = self.model(inputs.to(self.device))
+                    test_loss += self.criterion(output, target.to(self.device)).item()
+                    pred = output.max(1)[1]
+                    correct += pred.eq(target.to(self.device)).sum().item()
+            else:
+                for data in self.valid_loader.dataset:
+                    start_time = time.time()
+                    
+                    inputs, labels = data[0]["data"], data[0]["label"]
+                    labels = labels.long()
+                    
+                    end_time = time.time() - start_time
+                    batch_time += end_time
 
-                #if self.args.debug_data_dir:
-                #    with open(debug_indices, "a") as f:
-                #        f.write(" ".join(list(map(str, indices.tolist()))))
-                #        f.write("\n")
+                    output = self.model(inputs.to(self.device))
+                    test_loss += self.criterion(output, target.to(self.device)).item()
+                    pred = output.max(1)[1]
+                    correct += pred.eq(target.to(self.device)).sum().item()
 
-        test_loss /= len(self.loader_valid.dataset)
-        test_acc = 100. * correct / len(self.loader_valid.dataset)
+
+        test_loss /= len(self.valid_loader.dataset)
+        test_acc = 100. * correct / len(self.valid_loader.dataset)
         print('{} Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-            pid, test_loss, correct, len(self.loader_valid.dataset),
+            pid, test_loss, correct, len(self.valid_loader.dataset),
             test_acc))
 
         epoch_time = time.time() - epoch_time

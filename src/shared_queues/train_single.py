@@ -5,6 +5,7 @@ import torch.backends.cudnn as cudnn
 import torchvision
 import torchvision.models as models
 from torchvision import datasets
+from dali_dataset import DALIDataset
 
 from pathlib import Path
 import argparse
@@ -76,7 +77,8 @@ if __name__ == "__main__":
     if args.dataset == "imagenet128x128":
         INPUT_SIZE = 128
     
-    train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
+    if args.dataset[-4:] != "dali":
+        train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
 
     if args.dataset in ["imagenet", "imagenet64x64", "imagenet128x128"]:
         traindir = os.path.join(data_path / args.dataset, 'train')
@@ -102,6 +104,24 @@ if __name__ == "__main__":
 
         train_dataset = DatasetFromSubset(train_set, train_transforms)
         valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+
+    elif args.dataset == "compcars_dali":
+        images_train = data_path / "compcars" / "image_train"
+        images_valid = data_path / "compcars" / "image_valid"
+        train_loader = DALIDataset(args.dataset, images_train, args.batch_size, args.training_workers, INPUT_SIZE)
+        valid_loader = DALIDataset(args.dataset, images_valid, args.batch_size, args.validation_workers, INPUT_SIZE)
+    elif args.dataset == "imagenet64x64_dali":
+        traindir = os.path.join(data_path / args.dataset[:-5], 'train')
+        valdir = os.path.join(data_path / args.dataset[:-5], 'val')
+        train_loader = DALIDataset(args.dataset, traindir, args.batch_size, args.training_workers, INPUT_SIZE)
+        valid_loader = DALIDataset(args.dataset, valdir, args.batch_size, args.validation_workers, INPUT_SIZE)
+    elif args.dataset == "imagenet_dali":
+        traindir = os.path.join(data_path / args.dataset[:-5], 'train')
+        valdir = os.path.join(data_path / args.dataset[:-5], 'val')
+        train_loader = DALIDataset(args.dataset, traindir, args.batch_size, args.training_workers, INPUT_SIZE)
+        #valid_loader = DALIDataset(args.dataset, valdir, args.batch_size, args.validation_workers, INPUT_SIZE)
+        valid_loader = None
+
     else:
         raise Exception(f"Dataset: {args.dataset} does not exist")
 
@@ -112,8 +132,10 @@ if __name__ == "__main__":
     
     _start = time.time()
 
-    model_trainer = Trainer(args, model, device, train_dataset, valid_dataset)
-    #model_trainer = NaiveTrainer(args, model, device, train_dataset, valid_dataset)
+    if args.dataset[-4:] == "dali":
+        model_trainer = Trainer(args, model, device, train_loader=train_loader, valid_loader=valid_loader)
+    else:
+        model_trainer = Trainer(args, model, device, train_dataset=train_dataset, val_dataset=valid_dataset)
 
     model_trainer.train(-1)
 

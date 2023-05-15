@@ -25,46 +25,6 @@ class CarDataset(D.Dataset):
         """
         return len(self.filenames)
 
-class SharedDataset:
-    def __init__(self, tensors, accesses, num_batches, max_accesses, device, shared_size=10):
-        self.tensors = tensors
-        self.accesses = accesses
-        self.tensors.extend([None] * shared_size)
-        self.accesses.extend([0] * shared_size)
-        self.max_accesses = max_accesses
-        self.device = device
-        self.shared_size = shared_size
-
-    def get_batch(self, lock, idx, pid):
-        lock.acquire()
-        #print(f"{pid} Getting batch at idx:", idx % self.shared_size)
-        self.accesses[idx % self.shared_size] += 1
-        inputs, labels = self.tensors[idx % self.shared_size]
-        lock.release()
-        return torch.as_tensor(inputs, device=self.device), torch.as_tensor(labels, device=self.device)
-
-    def set_batch(self, lock, inputs, labels, idx, pid):
-        lock.acquire()
-        #print(f"{pid} Setting batch at idx:", idx % self.shared_size)
-        self.accesses[idx % self.shared_size] += 1
-        self.tensors[idx % self.shared_size] = (cp.asarray(inputs), cp.asarray(labels))
-        lock.release()
-
-    def remove_batch(self, lock, idx, pid):
-        lock.acquire()
-        #print(f"{pid} Removing batch at idx:", idx % self.shared_size)
-        if self.accesses[idx % self.shared_size] == self.max_accesses:
-            self.tensors[idx % self.shared_size] = None
-            self.accesses[idx % self.shared_size] = 0
-        lock.release()
-
-    def get_accesses(self, lock, idx):
-        lock.acquire()
-        accesses = self.accesses[idx % self.shared_size]
-        lock.release()
-        return accesses
-        
-
 class DatasetFromSubset(D.Dataset):
     def __init__(self, subset, transform=None):
         self.subset = subset
