@@ -20,7 +20,7 @@ sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
 /home/neni/.venv/thesis/bin/python src/shared_queues/train_multiple.py \
     --arch resnet18 resnet18 --epochs $EPOCHS --pretrained true true --dataset $DATASET \
     --num-processes 2 --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
-    --log_dir "${LOG_DIR}/${DATASET}/${MODEL_NAME}" --record_first_batch_time & 
+    --log_dir "${LOG_DIR}/${DATASET}/${MODEL_NAME}" --record_first_batch_time $1 & 
     #--debug_data_dir "${DEBUG_DIR}train_queues_debug" 
 
 training_main_proc=$!
