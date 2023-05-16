@@ -8,7 +8,9 @@ data/*
 notes.md
 setup.py
 run_mps.sh
-train_*.sh
+train_single.sh
+train_multiple.sh
+train_multiple_mps.sh
 notes.md
 
 logs/*

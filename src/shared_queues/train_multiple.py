@@ -42,6 +42,7 @@ parser.add_argument('--validation-workers', type=int, default=1)
 parser.add_argument('--prefetch-factor', type=int, default=1)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--epochs', type=int, default=5)
+parser.add_argument('--use-dali', action='store_true', help="whether to use DALI for data-loading")
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('-a','--arch', nargs='+', metavar='ARCH', help='model architecture: ' +
@@ -63,7 +64,8 @@ parser.add_argument('--record_first_batch_time', action='store_true', help="Don'
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def producer(qs, device, args, producer_alive):
+
+def dali_producer(qs, device, args, producer_alive):
     pid = os.getpid()
     if args.seed:
         torch.manual_seed(args.seed)
@@ -72,39 +74,86 @@ def producer(qs, device, args, producer_alive):
             shutil.rmtree(args.debug_data_dir)
     debug_indices_path, debug_indices_val_path = None, None
 
-    images_train = data_path / "compcars" / "image_train"
-    images_valid = data_path / "compcars" / "image_valid"
+    if args.dataset == "compcars":
+        images_train = data_path / args.dataset / "image_train"
+        images_valid = data_path / args.dataset / "image_valid"
+    if args.dataset in ("imagenet", "imagenet64x64"):
+        images_train = data_path / args.dataset / "train"
+        images_valid = data_path / args.dataset / "val"
+        
     train_loader = DALIDataset(args.dataset, images_train, args.batch_size, args.training_workers, INPUT_SIZE)
     valid_loader = DALIDataset(args.dataset, images_valid, args.batch_size, args.validation_workers, INPUT_SIZE)
+    
+    args.train_dataset_len = len(train_loader)
+    args.train_loader_len = len(train_loader)
+    args.valid_dataset_len = len(valid_loader)
+    args.valid_loader_len = len(valid_loader)
 
     for epoch in range(1, args.epochs+1):
         if args.debug_data_dir:
             debug_indices_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_indices.txt"
             debug_indices_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if args.dataset[-4:] != "dali":
-            for idx, (inputs, labels) in enumerate(train_loader):
-                indices = None
+        for idx, data in enumerate(train_loader.dataset):
+            inputs, labels = data[0]["data"], data[0]["label"]
+            indices = None
+            labels = labels.long()
+            inputs = Variable(inputs.to(device))
+            labels = Variable(labels.to(device))
+            for q in qs:
+                q.queue.put((idx, inputs, labels, epoch, "train", indices))
+            
+            #write_debug_indices(indices, debug_indices_path, args)
 
-                inputs = Variable(inputs.to(device))
-                labels = Variable(labels.to(device))
+        # end of training for epoch, switch to eval
+        if epoch > 1:
+            if args.debug_data_dir:
+                debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_val_indices.txt"
+                debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
 
-                for q in qs:
-                    q.queue.put((idx, inputs, labels, epoch, "train", indices))
-        else:
-            for idx, data in enumerate(train_loader.dataset):
+            for idx, data in enumerate(valid_loader.dataset):
                 inputs, labels = data[0]["data"], data[0]["label"]
                 indices = None
                 labels = labels.long()
                 inputs = Variable(inputs.to(device))
                 labels = Variable(labels.to(device))
+
                 for q in qs:
-                    q.queue.put((idx, inputs, labels, epoch, "train", indices))
-            
+                    q.queue.put((idx, inputs, labels, epoch, "valid", indices))
+
+                #write_debug_indices(indices, debug_indices_val_path, args)
+        
+        for q in qs:
+            q.queue.put((0, None, None, epoch, "end", None))
+    producer_alive.wait()
+
+
+def producer(loader, valid_loader, qs, device, args, producer_alive):
+    pid = os.getpid()
+    if args.seed:
+        torch.manual_seed(args.seed)
+    if args.debug_data_dir:
+        if args.overwrite_debug_data:
+            shutil.rmtree(args.debug_data_dir)
+    debug_indices_path, debug_indices_val_path = None, None
+
+    for epoch in range(1, args.epochs+1):
+        if args.debug_data_dir:
+            debug_indices_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_indices.txt"
+            debug_indices_path.parent.mkdir(parents=True, exist_ok=True)
+
+        for idx, (inputs, labels) in enumerate(loader):
+            indices = None
+            inputs = Variable(inputs.to(device))
+            labels = Variable(labels.to(device))
+
+            for q in qs:
+                q.queue.put((idx, inputs, labels, epoch, "train", indices))
+
             #write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
-        if epoch > 10:
+        if epoch > 1:
             if args.debug_data_dir:
                 debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_val_indices.txt"
                 debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
@@ -122,6 +171,8 @@ def producer(qs, device, args, producer_alive):
         for q in qs:
             q.queue.put((0, None, None, epoch, "end", None))
     producer_alive.wait()
+
+
 
 class MyQueue(object):
     def __init__(self, queue, index):
@@ -262,33 +313,33 @@ if __name__ == "__main__":
     if args.dataset == "imagenet64x64":
         INPUT_SIZE = 64
     
-    if args.dataset[-4:] != "dali":
+    if not args.use_dali:
         train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
 
-    if args.dataset in ["imagenet", "imagenet64x64"]:
-        traindir = os.path.join(data_path / args.dataset, 'train')
-        valdir = os.path.join(data_path / args.dataset, 'val')
+        if args.dataset in ["imagenet", "imagenet64x64"]:
+            traindir = os.path.join(data_path / args.dataset, 'train')
+            valdir = os.path.join(data_path / args.dataset, 'val')
 
-        train_dataset = datasets.ImageFolder(
-            traindir,
-            train_transforms)
-        
-        valid_dataset = datasets.ImageFolder(
-            valdir,
-            valid_transforms)
+            train_dataset = datasets.ImageFolder(
+                traindir,
+                train_transforms)
+            
+            valid_dataset = datasets.ImageFolder(
+                valdir,
+                valid_transforms)
 
-    elif args.dataset == "compcars":
-        labels = ads3.get_labels()
-        file_train = data_path / "compcars" / "train.txt"
-        folder_images = data_path / "compcars" / "image"
-        dataset = CarDataset(file_path=file_train, folder_images=folder_images, labels=labels)
+        elif args.dataset == "compcars":
+            labels = ads3.get_labels()
+            file_train = data_path / "compcars" / "train.txt"
+            folder_images = data_path / "compcars" / "image"
+            dataset = CarDataset(file_path=file_train, folder_images=folder_images, labels=labels)
 
-        train_len = int(0.7 * len(dataset))
-        valid_len = len(dataset) - train_len
-        train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
+            train_len = int(0.7 * len(dataset))
+            valid_len = len(dataset) - train_len
+            train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
 
-        train_dataset = DatasetFromSubset(train_set, train_transforms)
-        valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+            train_dataset = DatasetFromSubset(train_set, train_transforms)
+            valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
 
     train_models = []
     for idx, arch in enumerate(args.arch):
@@ -314,37 +365,60 @@ if __name__ == "__main__":
 
     producer_alive = mp.Event()
     producers = []
-    for i in range(1):
-        #train_loader = D.DataLoader(
-        #    train_dataset,
-        #    batch_size=args.batch_size,
-        #    shuffle=True,
-        #    num_workers=args.training_workers,
-        #    pin_memory=False,
-        #    prefetch_factor=args.prefetch_factor,
-        #    persistent_workers=True,
-        #)
-#
-        #valid_loader = D.DataLoader(
-        #    valid_dataset,
-        #    batch_size=args.batch_size,
-        #    shuffle=True,
-        #    num_workers=args.validation_workers,
-        #    pin_memory=True,
-        #    prefetch_factor=args.prefetch_factor,
-        #    persistent_workers=True,
-        #)
+    if not args.use_dali:
+        for i in range(1):
+            train_loader = D.DataLoader(
+                train_dataset,
+                batch_size=args.batch_size,
+                shuffle=True,
+                num_workers=args.training_workers,
+                pin_memory=False,
+                prefetch_factor=args.prefetch_factor,
+                persistent_workers=True,
+                drop_last=True
+            )
+    
+            valid_loader = D.DataLoader(
+                valid_dataset,
+                batch_size=args.batch_size,
+                shuffle=True,
+                num_workers=args.validation_workers,
+                pin_memory=True,
+                prefetch_factor=args.prefetch_factor,
+                persistent_workers=True,
+                drop_last=True
+            )
 
-        args.train_dataset_len = 1
-        args.train_loader_len = 1
+            args.train_dataset_len = len(train_loader.dataset)
+            #print(args.train_dataset_len)
+            args.train_loader_len = len(train_loader)
+            #print(args.train_loader_len)
 
-        args.valid_dataset_len = 1
-        args.valid_loader_len = 1
+            args.valid_dataset_len = len(valid_loader.dataset)
+            #print(args.valid_dataset_len)
+            args.valid_loader_len = len(valid_loader)
+            #print(args.valid_loader_len)
 
-        #p = Process(target=producer, args = ((train_loader, valid_loader, [queues[i]], device, args, producer_alive)))
-        p = Process(target=producer, args = ((queues, device, args, producer_alive)))
-        producers.append(p)
-        p.start()
+            p = Process(target=producer, args = ((train_loader, valid_loader, queues, device, args, producer_alive)))
+            producers.append(p)
+            p.start()
+    else:
+        for i in range(1):
+            p = Process(target=dali_producer, args = ((queues, device, args, producer_alive)))
+            producers.append(p)
+            p.start()
+
+        # hardcode this for now, idc
+        if args.dataset == "compcars":
+            args.train_dataset_len = 11211
+            args.train_loader_len = 88
+            args.valid_dataset_len = 4805
+            args.valid_loader_len = 38
+        if args.dataset == "imagenet64x64":
+            args.train_dataset_len = 1281089
+            args.train_loader_len = 10008
+            args.valid_dataset_len = 49995
+            args.valid_loader_len = 390
 
     args.device = device
     finished_workers = Counter(0)

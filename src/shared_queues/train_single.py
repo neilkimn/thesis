@@ -34,6 +34,7 @@ parser.add_argument('--validation-workers', type=int, default=1)
 parser.add_argument('--prefetch-factor', type=int, default=1)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--epochs', type=int, default=5)
+parser.add_argument('--use-dali', action='store_true', help="whether to use DALI for data-loading")
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
@@ -77,53 +78,42 @@ if __name__ == "__main__":
     if args.dataset == "imagenet128x128":
         INPUT_SIZE = 128
     
-    if args.dataset[-4:] != "dali":
+    if not args.use_dali:
         train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
+    if not args.use_dali:
+        if args.dataset in ["imagenet", "imagenet64x64", "imagenet128x128"]:
+            traindir = os.path.join(data_path / args.dataset, 'train')
+            valdir = os.path.join(data_path / args.dataset, 'val')
 
-    if args.dataset in ["imagenet", "imagenet64x64", "imagenet128x128"]:
-        traindir = os.path.join(data_path / args.dataset, 'train')
-        valdir = os.path.join(data_path / args.dataset, 'val')
+            train_dataset = datasets.ImageFolder(
+                traindir,
+                train_transforms)
+            
+            valid_dataset = datasets.ImageFolder(
+                valdir,
+                valid_transforms)
 
-        train_dataset = datasets.ImageFolder(
-            traindir,
-            train_transforms)
-        
-        valid_dataset = datasets.ImageFolder(
-            valdir,
-            valid_transforms)
+        elif args.dataset == "compcars":
+            labels = ads3.get_labels()
+            file_train = data_path / "compcars" / "train.txt"
+            folder_images = data_path / "compcars" / "image"
+            dataset = CarDataset(file_path=file_train, folder_images=folder_images, labels=labels)
 
-    elif args.dataset == "compcars":
-        labels = ads3.get_labels()
-        file_train = data_path / "compcars" / "train.txt"
-        folder_images = data_path / "compcars" / "image"
-        dataset = CarDataset(file_path=file_train, folder_images=folder_images, labels=labels)
+            train_len = int(0.7 * len(dataset))
+            valid_len = len(dataset) - train_len
+            train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
 
-        train_len = int(0.7 * len(dataset))
-        valid_len = len(dataset) - train_len
-        train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
-
-        train_dataset = DatasetFromSubset(train_set, train_transforms)
-        valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
-
-    elif args.dataset == "compcars_dali":
-        images_train = data_path / "compcars" / "image_train"
-        images_valid = data_path / "compcars" / "image_valid"
+            train_dataset = DatasetFromSubset(train_set, train_transforms)
+            valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+    else:
+        if args.dataset == "compcars":
+            images_train = data_path / "compcars" / "image_train"
+            images_valid = data_path / "compcars" / "image_valid"
+        elif args.dataset in ("imagenet", "imagenet64x64"):
+            images_train = data_path / "compcars" / "train"
+            images_valid = data_path / "compcars" / "val"
         train_loader = DALIDataset(args.dataset, images_train, args.batch_size, args.training_workers, INPUT_SIZE)
         valid_loader = DALIDataset(args.dataset, images_valid, args.batch_size, args.validation_workers, INPUT_SIZE)
-    elif args.dataset == "imagenet64x64_dali":
-        traindir = os.path.join(data_path / args.dataset[:-5], 'train')
-        valdir = os.path.join(data_path / args.dataset[:-5], 'val')
-        train_loader = DALIDataset(args.dataset, traindir, args.batch_size, args.training_workers, INPUT_SIZE)
-        valid_loader = DALIDataset(args.dataset, valdir, args.batch_size, args.validation_workers, INPUT_SIZE)
-    elif args.dataset == "imagenet_dali":
-        traindir = os.path.join(data_path / args.dataset[:-5], 'train')
-        valdir = os.path.join(data_path / args.dataset[:-5], 'val')
-        train_loader = DALIDataset(args.dataset, traindir, args.batch_size, args.training_workers, INPUT_SIZE)
-        #valid_loader = DALIDataset(args.dataset, valdir, args.batch_size, args.validation_workers, INPUT_SIZE)
-        valid_loader = None
-
-    else:
-        raise Exception(f"Dataset: {args.dataset} does not exist")
 
     model = torchvision.models.__dict__[args.arch](pretrained=pretrained)
     model.name = args.arch + "_pretrained" if pretrained else args.arch
@@ -132,7 +122,7 @@ if __name__ == "__main__":
     
     _start = time.time()
 
-    if args.dataset[-4:] == "dali":
+    if args.use_dali:
         model_trainer = Trainer(args, model, device, train_loader=train_loader, valid_loader=valid_loader)
     else:
         model_trainer = Trainer(args, model, device, train_dataset=train_dataset, val_dataset=valid_dataset)

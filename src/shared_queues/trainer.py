@@ -429,14 +429,14 @@ class Trainer:
 
                 if batch_idx % self.args.log_interval == 0:
                     print('{}\tTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} Throughput [img/s]: {:.1f} Data time {:.1f}'.format(
-                        pid, epoch, batch_idx * len(inputs), len(train_loader.dataset),
+                        pid, epoch, batch_idx * len(inputs), len(train_loader),
                         100. * batch_idx / len(train_loader), loss.item(), (batch_idx * len(inputs) / (time.time() - epoch_time)), batch_time ))
                     if self.args.log_path:
                         with open(self.args.log_path / f"{self.args.log_name}_output.csv", "a") as f:
                             f.write(f"{pid}\tTrain Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} ({round(100. * batch_idx / len(train_loader),2)}%)]\tLoss: {round(loss.item(),2)} Throughput [img/s]: {round(batch_idx * len(inputs) / (time.time() - epoch_time), 2)}\n")
 
 
-        train_epoch_acc = train_running_corrects.double() / len(train_loader.dataset) * 100
+        train_epoch_acc = train_running_corrects.double() / len(train_loader) * 100
 
         epoch_time = time.time() - epoch_time
         train_time = epoch_time - batch_time
@@ -486,18 +486,27 @@ class Trainer:
                     batch_time += end_time
 
                     output = self.model(inputs.to(self.device))
-                    test_loss += self.criterion(output, target.to(self.device)).item()
+                    test_loss += self.criterion(output, labels.to(self.device)).item()
                     pred = output.max(1)[1]
-                    correct += pred.eq(target.to(self.device)).sum().item()
+                    correct += pred.eq(labels.to(self.device)).sum().item()
 
+        if not self.dali:
+            test_loss /= len(self.valid_loader.dataset)
+            test_acc = 100. * correct / len(self.valid_loader.dataset)
+            print('{} Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+                pid, test_loss, correct, len(self.valid_loader.dataset),
+                test_acc))
 
-        test_loss /= len(self.valid_loader.dataset)
-        test_acc = 100. * correct / len(self.valid_loader.dataset)
-        print('{} Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-            pid, test_loss, correct, len(self.valid_loader.dataset),
-            test_acc))
+            epoch_time = time.time() - epoch_time
+            test_time = epoch_time - batch_time
+        else:
+            test_loss /= len(self.valid_loader)
+            test_acc = 100. * correct / len(self.valid_loader)
+            print('{} Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+                pid, test_loss, correct, len(self.valid_loader),
+                test_acc))
 
-        epoch_time = time.time() - epoch_time
-        test_time = epoch_time - batch_time
+            epoch_time = time.time() - epoch_time
+            test_time = epoch_time - batch_time
         
         return test_acc, correct, test_time, batch_time
