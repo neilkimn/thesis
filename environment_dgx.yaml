@@ -1,9 +1,9 @@
-name: pt
+name: thesis
 channels:
   - pytorch
   - nvidia
 dependencies:
-  - python=3.9
+  - python=3.10
   - pip
   - pytorch-cuda=11.7
   - boto3
