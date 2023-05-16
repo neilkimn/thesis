@@ -5,7 +5,7 @@ import torchvision
 import torchvision.transforms as transforms
 import torchvision.models as models
 import torchvision.datasets as datasets
-from src.dali_dataset import DALIDataset
+from dali_dataset import DALIDataset
 
 import torch.multiprocessing as mp
 from torch.multiprocessing import Process, Queue, JoinableQueue
@@ -106,7 +106,7 @@ def dali_producer(qs, device, args, producer_alive):
             #write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
-        if epoch > 1:
+        if epoch > 10:
             if args.debug_data_dir:
                 debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_val_indices.txt"
                 debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,7 +153,7 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
             #write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
-        if epoch > 1:
+        if epoch > 10:
             if args.debug_data_dir:
                 debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_val_indices.txt"
                 debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)

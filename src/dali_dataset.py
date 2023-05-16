@@ -313,7 +313,7 @@ class DALIDataset:
             )
             self.dataset = pipe_class.dataset
 
-        if dataset_name in ("imagenet", "imagenet64x64"):
+        if dataset_name in ("imagenet", "imagenet64x64", "imagenet64_images"):
             pipe_class = PipelineImageNet(
                 self.batch_size, 
                 self.num_workers, 
