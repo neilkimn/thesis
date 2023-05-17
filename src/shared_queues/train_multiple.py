@@ -58,7 +58,7 @@ parser.add_argument('--overwrite_debug_data', type=int, default=1)
 parser.add_argument('--log_dir', metavar='LOG_DIR', nargs='?', default='',
                     help='path to store training log')
 parser.add_argument('--pretrained', nargs='+', metavar="PRETRAIN", help="Whether to pretrain a certain model")
-parser.add_argument('--dummy_data', action='store_true', help="use fake data to benchmark")
+parser.add_argument('--dummy-data', action='store_true', help="use fake data to benchmark")
 parser.add_argument('--record_first_batch_time', action='store_true', help="Don't skip measuring time spent on first batch")
 
 def count_parameters(model):
@@ -106,7 +106,7 @@ def dali_producer(qs, device, args, producer_alive):
             #write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
-        if epoch > 1:
+        if epoch > 10:
             if args.debug_data_dir:
                 debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_val_indices.txt"
                 debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,7 +153,7 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
             #write_debug_indices(indices, debug_indices_path, args)
 
         # end of training for epoch, switch to eval
-        if epoch > 1:
+        if epoch > 10:
             if args.debug_data_dir:
                 debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_val_indices.txt"
                 debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
@@ -259,6 +259,8 @@ def worker(q, model, args, producer_alive, finished_workers):
         start = time.time()
         if batch_type == "train":
             #write_debug_indices(indices, debug_indices_path, args)
+            #inputs = Variable(inputs.to(args.device))
+            #labels = Variable(labels.to(args.device))
 
             loss = model.forward(inputs, labels)
             items_processed += len(inputs)
@@ -267,6 +269,8 @@ def worker(q, model, args, producer_alive, finished_workers):
 
         elif batch_type == "valid":
             #write_debug_indices(indices, debug_indices_val_path, args)
+            #inputs = Variable(inputs.to(args.device))
+            #labels = Variable(labels.to(args.device))
 
             val_loss, val_acc, val_correct = model.validate(inputs, labels)
             val_time += time.time() - start
@@ -400,6 +404,7 @@ if __name__ == "__main__":
             #print(args.valid_loader_len)
 
             p = Process(target=producer, args = ((train_loader, valid_loader, queues, device, args, producer_alive)))
+            #p = Process(target=producer, args = ((train_loader, valid_loader, [queues[i]], device, args, producer_alive)))
             producers.append(p)
             p.start()
     else:

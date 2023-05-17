@@ -35,6 +35,7 @@ parser.add_argument('--prefetch-factor', type=int, default=1)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--epochs', type=int, default=5)
 parser.add_argument('--use-dali', action='store_true', help="whether to use DALI for data-loading")
+parser.add_argument('--dummy-data', action='store_true', help="use fake data to benchmark")
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
@@ -92,19 +93,24 @@ if __name__ == "__main__":
             valid_dataset = datasets.ImageFolder(
                 valdir,
                 valid_transforms)
-
+    
         elif args.dataset == "compcars":
-            labels = ads3.get_labels()
-            file_train = data_path / "compcars" / "train.txt"
-            folder_images = data_path / "compcars" / "image"
-            dataset = CarDataset(file_path=file_train, folder_images=folder_images, labels=labels)
+            if args.dummy_data:
+                print("=> Dummy CompCars data is used!")
+                train_dataset = datasets.FakeData(11336, (3, 224, 224), 431, train_transforms)
+                valid_dataset = datasets.FakeData(4680, (3, 224, 224), 431, valid_transforms)
+            else:
+                labels = ads3.get_labels()
+                file_train = data_path / "compcars" / "train.txt"
+                folder_images = data_path / "compcars" / "image"
+                dataset = CarDataset(file_path=file_train, folder_images=folder_images, labels=labels)
 
-            train_len = int(0.7 * len(dataset))
-            valid_len = len(dataset) - train_len
-            train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
+                train_len = int(0.7 * len(dataset))
+                valid_len = len(dataset) - train_len
+                train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
 
-            train_dataset = DatasetFromSubset(train_set, train_transforms)
-            valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+                train_dataset = DatasetFromSubset(train_set, train_transforms)
+                valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
     else:
         if args.dataset == "compcars":
             images_train = data_path / "compcars" / "image_train"
@@ -112,6 +118,7 @@ if __name__ == "__main__":
         elif args.dataset in ("imagenet", "imagenet64x64"):
             images_train = data_path / "compcars" / "train"
             images_valid = data_path / "compcars" / "val"
+        print("Using DALI dataloader!")
         train_loader = DALIDataset(args.dataset, images_train, args.batch_size, args.training_workers, INPUT_SIZE)
         valid_loader = DALIDataset(args.dataset, images_valid, args.batch_size, args.validation_workers, INPUT_SIZE)
 

@@ -366,6 +366,11 @@ class Trainer:
         train_running_corrects = 0
         batch_time = 0
 
+        if self.args.dummy_data:
+            loader_iter = iter(train_loader)
+            inputs, labels = next(loader_iter)
+            inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
+
         if self.args.debug_data_dir:
             debug_indices = Path(self.args.debug_data_dir) / f"{pid}_epoch_{epoch}" / "indices.txt"
             debug_indices.parent.mkdir(parents=True, exist_ok=True)
@@ -375,9 +380,9 @@ class Trainer:
 
             for batch_idx in range(len(train_loader)):
                 start_time = time.time()
-                (inputs, labels) = next(loader_iter)
-
-                inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
+                if not self.args.dummy_data:
+                    (inputs, labels) = next(loader_iter)
+                    inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
                 end_time = time.time() - start_time
                 batch_time += end_time
 
