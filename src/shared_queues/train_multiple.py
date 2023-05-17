@@ -5,7 +5,7 @@ import torchvision
 import torchvision.transforms as transforms
 import torchvision.models as models
 import torchvision.datasets as datasets
-from src.dali_dataset import DALIDataset
+from dali_dataset import DALIDataset
 
 import torch.multiprocessing as mp
 from torch.multiprocessing import Process, Queue, JoinableQueue

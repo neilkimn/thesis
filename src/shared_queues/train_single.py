@@ -74,7 +74,7 @@ if __name__ == "__main__":
     device = "cuda:0"
     
     """Initialise dataset"""
-    if args.dataset == "imagenet64x64":
+    if args.dataset in ("imagenet64x64", "imagenet64_images"):
         INPUT_SIZE = 64
     if args.dataset == "imagenet128x128":
         INPUT_SIZE = 128
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     if not args.use_dali:
         train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
     if not args.use_dali:
-        if args.dataset in ["imagenet", "imagenet64x64", "imagenet128x128"]:
+        if args.dataset in ["imagenet", "imagenet64x64", "imagenet128x128", "imagenet64_images"]:
             traindir = os.path.join(data_path / args.dataset, 'train')
             valdir = os.path.join(data_path / args.dataset, 'val')
 
@@ -115,10 +115,11 @@ if __name__ == "__main__":
         if args.dataset == "compcars":
             images_train = data_path / "compcars" / "image_train"
             images_valid = data_path / "compcars" / "image_valid"
-        elif args.dataset in ("imagenet", "imagenet64x64"):
-            images_train = data_path / "compcars" / "train"
-            images_valid = data_path / "compcars" / "val"
-        print("Using DALI dataloader!")
+        elif args.dataset in ("imagenet", "imagenet64x64", "imagenet64_images"):
+            print(args.dataset)
+            images_train = data_path / args.dataset / "train"
+            images_valid = data_path / args.dataset / "val"
+        print("Using DALI dataloaders!")
         train_loader = DALIDataset(args.dataset, images_train, args.batch_size, args.training_workers, INPUT_SIZE)
         valid_loader = DALIDataset(args.dataset, images_valid, args.batch_size, args.validation_workers, INPUT_SIZE)
 
