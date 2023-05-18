@@ -70,8 +70,8 @@ def resize_img_folder(in_dir, out_dir, alg):
 
             im_resized = im.resize((size, size), alg_val)
             # Get rid of extension (.jpg or other)
-            filename = os.path.splitext(filename)[0]
-            im_resized.save(os.path.join(out_dir, filename + '.png'))
+            #filename = os.path.splitext(filename)[0]
+            im_resized.save(os.path.join(out_dir, filename))
         except OSError as err:
             print("This file couldn't be read as an image", err)
             with open("log.txt", "a") as f:

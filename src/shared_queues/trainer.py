@@ -409,8 +409,8 @@ class Trainer:
                             f.write(f"{pid}\tTrain Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} ({round(100. * batch_idx / len(train_loader),2)}%)]\tLoss: {round(loss.item(),2)} Throughput [img/s]: {round(batch_idx * len(inputs) / (time.time() - epoch_time), 2)}\n")
         
         else:
+            start_time = time.time()
             for batch_idx, data in enumerate(self.train_loader.dataset):
-                start_time = time.time()
                 inputs, labels = data[0]["data"], data[0]["label"]
                 labels = labels.long()
                 inputs, labels = Variable(inputs.to(self.device)), Variable(labels.to(self.device))
@@ -439,6 +439,7 @@ class Trainer:
                     if self.args.log_path:
                         with open(self.args.log_path / f"{self.args.log_name}_output.csv", "a") as f:
                             f.write(f"{pid}\tTrain Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} ({round(100. * batch_idx / len(train_loader),2)}%)]\tLoss: {round(loss.item(),2)} Throughput [img/s]: {round(batch_idx * len(inputs) / (time.time() - epoch_time), 2)}\n")
+                start_time = time.time()
 
 
         train_epoch_acc = train_running_corrects.double() / len(train_loader) * 100

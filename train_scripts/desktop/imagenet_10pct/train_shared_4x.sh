@@ -1,12 +1,12 @@
 #!/bin/bash
 
-LOG_DIR="/home/neni/repos/thesis/logs_all/queues"
-DEBUG_DIR="/home/neni/repos/thesis/debug_data/"
+LOG_DIR="/home/kafka/repos/thesis/logs_all/queues"
+DEBUG_DIR="/home/kafka/repos/thesis/debug_data/"
 CUDA_VISIBLE_DEVICES=0
 
 MODEL="resnet18"
 BATCH_SIZE=128
-DATASET="imagenet"
+DATASET="imagenet_10pct"
 MODEL_NAME="${MODEL}_bs_${BATCH_SIZE}"
 EPOCHS=3
 
@@ -15,9 +15,9 @@ if [[ ! -e ${LOG_DIR}/${DATASET}/${MODEL_NAME} ]]; then
     mkdir -p ${LOG_DIR}/${DATASET}/${MODEL_NAME}
 fi
 
-#sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
+sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
 
-/home/neni/.conda/envs/thesis/bin/python src/shared_queues/train_multiple.py --log-interval 100 \
+/home/kafka/miniconda3/envs/thesis/bin/python src/shared_queues/train_multiple.py \
     --arch resnet18 resnet18 resnet18 resnet18 --epochs $EPOCHS --pretrained true true true true --dataset $DATASET \
     --num-processes 4 --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
     --log_dir "${LOG_DIR}/${DATASET}/${MODEL_NAME}" --record_first_batch_time $1 & 
@@ -30,16 +30,13 @@ echo "Starting training process with PID $training_main_proc"
 mpstat 1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
 trace_cpu_pid=$!
 
-nvidia-smi pmon -i 0 -s um -o DT -f ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_gpu.out &
+nvidia-smi pmon -s um -o DT -f ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_gpu.out &
 trace_gpu_pid=$!
 
-iostat 1 -m -t nvme0n1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_io.out &
+iostat 1 -m -t sda > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_io.out &
 trace_io_pid=$!
 
-dcgmi dmon -i 0 -e 200,201,203,204,210,211,1002,1003,1004,1005,1009,1010 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_dcgm.out &
-dcgm_pid=$!
-
-echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid), nvidia-smi (PID: $trace_gpu_pid) and dcgmi (PID: $dcgm_pid)"
+echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid) and nvidia-smi (PID: $trace_gpu_pid)"
 
 while kill -0 "$training_main_proc"; do
     sleep 5
@@ -50,4 +47,3 @@ sleep 20
 kill $trace_cpu_pid
 kill $trace_gpu_pid
 kill $trace_io_pid
-kill $dcgm_pid

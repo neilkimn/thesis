@@ -1,7 +1,7 @@
 import torchvision.transforms as transforms
 
 import nvidia.dali.plugin.pytorch as dalitorch
-from nvidia.dali.plugin.pytorch import DALIGenericIterator, LastBatchPolicy
+from nvidia.dali.plugin.pytorch import DALIGenericIterator, LastBatchPolicy, DALIClassificationIterator
 from nvidia.dali import Pipeline, pipeline_def, fn, types
 import os
 
@@ -194,7 +194,7 @@ class PipelineCompCars:
             self.pipe.set_outputs(images, labels)
 
 class PipelineImageNet:
-    def __init__(self, batch_size, num_threads, data_dir, input_size, prefetch=1):
+    def __init__(self, batch_size, num_threads, data_dir, input_size, prefetch=2):
         self.batch_size = batch_size
         self.num_threads = num_threads
         self.data_dir = data_dir
@@ -202,9 +202,9 @@ class PipelineImageNet:
         self.prefetch = prefetch
         self.make_pipe()
         self.pipe.build()
-        self.dataset = DALIGenericIterator(
+        self.dataset = DALIClassificationIterator(
             self.pipe,
-            ["data", "label"],
+            #["data", "label"],
             reader_name="Reader",
             last_batch_policy=LastBatchPolicy.DROP,
         )
@@ -216,11 +216,11 @@ class PipelineImageNet:
             device_id=0,
             prefetch_queue_depth=self.prefetch
         )
-        device_memory_padding = 211025920
-        host_memory_padding = 140544512
+        #device_memory_padding = 211025920
+        #host_memory_padding = 140544512
         # ask HW NVJPEG to allocate memory ahead for the biggest image in the data set to avoid reallocations in runtime
-        preallocate_width_hint = 5980
-        preallocate_height_hint = 6430
+        #preallocate_width_hint = 5980
+        #preallocate_height_hint = 6430
         with self.pipe:
             images, labels = fn.readers.file(file_root=self.data_dir,
                                      random_shuffle=True,
@@ -229,19 +229,18 @@ class PipelineImageNet:
             
             images = fn.decoders.image_random_crop(images,
                                                device="mixed", output_type=types.RGB,
-                                               device_memory_padding=device_memory_padding,
-                                               host_memory_padding=host_memory_padding,
-                                               preallocate_width_hint=preallocate_width_hint,
-                                               preallocate_height_hint=preallocate_height_hint,
+                                               #device_memory_padding=device_memory_padding,
+                                               #host_memory_padding=host_memory_padding,
+                                               #preallocate_width_hint=preallocate_width_hint,
+                                               #preallocate_height_hint=preallocate_height_hint,
                                                random_aspect_ratio=[0.8, 1.25],
                                                random_area=[0.1, 1.0],
                                                num_attempts=100)
-
             images = fn.resize(images,
-                           device="gpu",
-                           resize_x=self.input_size,
-                           resize_y=self.input_size,
-                           interp_type=types.INTERP_TRIANGULAR)
+                            device="gpu",
+                            resize_x=self.input_size,
+                            resize_y=self.input_size,
+                            interp_type=types.INTERP_TRIANGULAR)
             mirror = fn.random.coin_flip(probability=0.5)
 
             images = fn.crop_mirror_normalize(images.gpu(),
@@ -253,6 +252,7 @@ class PipelineImageNet:
                                       mirror=mirror)
 
             labels = fn.squeeze(labels, axes=[0])
+            labels = labels.gpu()
             self.pipe.set_outputs(images, labels)
 
 def create_pipeline_imagenet(batch_size, num_threads, data_dir, input_size):

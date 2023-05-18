@@ -1,14 +1,14 @@
 #!/bin/bash
 
-LOG_DIR="/home/neni/repos/thesis/logs_all/single_runs"
-DEBUG_DIR="/home/neni/repos/thesis/debug_data/"
+LOG_DIR="/home/kafka/repos/thesis/logs_all/single_runs"
+DEBUG_DIR="/home/kafka/repos/thesis/debug_data/"
 CUDA_VISIBLE_DEVICES=0
 
 MODEL="resnet18"
 BATCH_SIZE=128
-DATASET="compcars"
+DATASET="imagenet_10pct"
 MODEL_NAME="${MODEL}_bs_${BATCH_SIZE}"
-EPOCHS=11
+EPOCHS=3
 
 sleep 1
 if [[ ! -e ${LOG_DIR}/${DATASET}/${MODEL_NAME} ]]; then
@@ -17,22 +17,7 @@ fi
 
 sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
 
-/home/neni/.venv/thesis/bin/python src/shared_queues/train_single.py \
-    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
-    --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
-    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
-
-/home/neni/.venv/thesis/bin/python src/shared_queues/train_single.py \
-    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
-    --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
-    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
-
-/home/neni/.venv/thesis/bin/python src/shared_queues/train_single.py \
-    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
-    --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
-    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
-
-/home/neni/.venv/thesis/bin/python src/shared_queues/train_single.py \
+/home/kafka/miniconda3/envs/thesis/bin/python src/shared_queues/train_single.py \
     --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
     --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
     --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &

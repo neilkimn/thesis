@@ -1,7 +1,7 @@
 #!/bin/bash
 
-LOG_DIR="/home/neni/repos/thesis/logs_all/queues"
-DEBUG_DIR="/home/neni/repos/thesis/debug_data/"
+LOG_DIR="/home/kafka/repos/thesis/logs_all/queues"
+DEBUG_DIR="/home/kafka/repos/thesis/debug_data/"
 CUDA_VISIBLE_DEVICES=0
 
 MODEL="resnet18"
@@ -17,9 +17,9 @@ fi
 
 sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
 
-/home/neni/.venv/thesis/bin/python src/shared_queues/train_multiple.py \
-    --arch resnet18 resnet18 resnet18 resnet18 --epochs $EPOCHS --pretrained true true true true --dataset $DATASET \
-    --num-processes 4 --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
+/home/kafka/miniconda3/envs/thesis/bin/python src/shared_queues/train_multiple.py \
+    --arch resnet18 resnet18 --epochs $EPOCHS --pretrained true true --dataset $DATASET \
+    --num-processes 2 --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
     --log_dir "${LOG_DIR}/${DATASET}/${MODEL_NAME}" --record_first_batch_time $1 & 
     #--debug_data_dir "${DEBUG_DIR}train_queues_debug" 
 

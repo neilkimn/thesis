@@ -7,7 +7,6 @@ debug_data/*
 data/*
 notes.md
 setup.py
-run_mps.sh
 train_single.sh
 train_multiple.sh
 train_multiple_mps.sh
@@ -22,3 +21,4 @@ logs_debug/*
 logs_dali/*
 *.sqlite
 *.nsys-rep
+dali_example.py
