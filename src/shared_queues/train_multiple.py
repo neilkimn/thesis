@@ -77,7 +77,7 @@ def dali_producer(qs, device, args, producer_alive):
     if args.dataset == "compcars":
         images_train = data_path / args.dataset / "image_train"
         images_valid = data_path / args.dataset / "image_valid"
-    if args.dataset in ("imagenet", "imagenet64x64"):
+    if args.dataset in ("imagenet", "imagenet64x64", "imagenet_10pct"):
         images_train = data_path / args.dataset / "train"
         images_valid = data_path / args.dataset / "val"
         
@@ -419,9 +419,11 @@ if __name__ == "__main__":
             args.train_loader_len = 88
             args.valid_dataset_len = 4805
             args.valid_loader_len = 38
-        if args.dataset == "imagenet64x64":
-            args.train_dataset_len = 1281089
-            args.train_loader_len = 10008
+        if "imagenet" in args.dataset:
+            #args.train_dataset_len = 1281089
+            args.train_dataset_len = 128116
+            #args.train_loader_len = 10008
+            args.train_loader_len = 1001
             args.valid_dataset_len = 49995
             args.valid_loader_len = 390
 
