@@ -19,6 +19,9 @@ logs_bpf/*
 logs_all/*
 logs_debug/*
 logs_dali/*
+logs_16cpu/
+logs_8cpu/
+logs_4cpu/
 *.sqlite
 *.nsys-rep
 dali_example.py
