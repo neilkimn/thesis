@@ -82,7 +82,7 @@ if __name__ == "__main__":
     if not args.use_dali:
         train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
     if not args.use_dali:
-        if args.dataset in ["imagenet", "imagenet64x64", "imagenet128x128", "imagenet64_images"]:
+        if args.dataset in ["imagenet", "imagenet_10pct", "imagenet64x64", "imagenet128x128", "imagenet64_images"]:
             traindir = os.path.join(data_path / args.dataset, 'train')
             valdir = os.path.join(data_path / args.dataset, 'val')
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
         if args.dataset == "compcars":
             images_train = data_path / "compcars" / "image_train"
             images_valid = data_path / "compcars" / "image_valid"
-        elif args.dataset in ("imagenet", "imagenet64x64", "imagenet64_images"):
+        elif args.dataset in ("imagenet", "imagenet_10pct", "imagenet64x64", "imagenet64_images"):
             print(args.dataset)
             images_train = data_path / args.dataset / "train"
             images_valid = data_path / args.dataset / "val"

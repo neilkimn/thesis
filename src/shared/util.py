@@ -172,7 +172,7 @@ def get_transformations(dataset, input_size):
             ]
         )
 
-    elif dataset in ("imagenet", "imagenet64x64", "imagenet128x128", "imagenet64_images"):
+    elif dataset in ("imagenet", "imagenet_10pct", "imagenet64x64", "imagenet128x128", "imagenet64_images"):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 

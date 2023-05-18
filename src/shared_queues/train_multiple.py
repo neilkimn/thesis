@@ -320,7 +320,7 @@ if __name__ == "__main__":
     if not args.use_dali:
         train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
 
-        if args.dataset in ["imagenet", "imagenet64x64"]:
+        if args.dataset in ["imagenet", "imagenet_10pct", "imagenet64x64"]:
             traindir = os.path.join(data_path / args.dataset, 'train')
             valdir = os.path.join(data_path / args.dataset, 'val')
 
