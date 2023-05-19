@@ -26,7 +26,7 @@
 
 # Naive DALI
 /home/kafka/repos/thesis/train_scripts/desktop/imagenet_10pct/train_single_1x.sh --use-dali
-/home/kafka/repos/thesis/train_scripts/desktop/imagenet_10pct/train_single_2x.sh --use-dali
+#/home/kafka/repos/thesis/train_scripts/desktop/imagenet_10pct/train_single_2x.sh --use-dali
 #/home/kafka/repos/thesis/train_scripts/desktop/imagenet_10pct/train_single_3x.sh --use-dali
 #/home/kafka/repos/thesis/train_scripts/desktop/imagenet_10pct/train_single_4x.sh --use-dali
 

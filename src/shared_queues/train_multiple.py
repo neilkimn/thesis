@@ -5,7 +5,6 @@ import torchvision
 import torchvision.transforms as transforms
 import torchvision.models as models
 import torchvision.datasets as datasets
-from dali_dataset import DALIDataset
 
 import torch.multiprocessing as mp
 from torch.multiprocessing import Process, Queue, JoinableQueue
@@ -376,7 +375,7 @@ if __name__ == "__main__":
                 batch_size=args.batch_size,
                 shuffle=True,
                 num_workers=args.training_workers,
-                pin_memory=False,
+                pin_memory=True,
                 prefetch_factor=args.prefetch_factor,
                 persistent_workers=True,
                 drop_last=True
@@ -408,6 +407,7 @@ if __name__ == "__main__":
             producers.append(p)
             p.start()
     else:
+        from dali_dataset import DALIDataset
         for i in range(1):
             p = Process(target=dali_producer, args = ((queues, device, args, producer_alive)))
             producers.append(p)
