@@ -315,7 +315,7 @@ class Trainer:
             self.valid_loader = D.DataLoader(
                 self.valid_set,
                 batch_size=self.args.batch_size,
-                shuffle=True,
+                shuffle=False,
                 num_workers=self.args.validation_workers,
                 pin_memory=True,
                 prefetch_factor=self.args.prefetch_factor,

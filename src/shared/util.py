@@ -189,5 +189,18 @@ def get_transformations(dataset, input_size):
                 transforms.ToTensor(),
                 normalize,
             ])
+    elif dataset == "cifar10":
+        train_transforms = transforms.Compose([
+            transforms.RandomCrop(input_size, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+
+        valid_transforms = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+
     return train_transforms, valid_transforms
 

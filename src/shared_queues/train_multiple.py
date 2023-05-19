@@ -315,6 +315,8 @@ if __name__ == "__main__":
 
     if args.dataset == "imagenet64x64":
         INPUT_SIZE = 64
+    if args.dataset == "cifar10":
+        INPUT_SIZE = 32
     
     if not args.use_dali:
         train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
@@ -343,6 +345,11 @@ if __name__ == "__main__":
 
             train_dataset = DatasetFromSubset(train_set, train_transforms)
             valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+        elif args.dataset == "cifar10":
+            train_dataset = torchvision.datasets.CIFAR10(
+                root=data_path, train=True, download=True, transform=train_transforms)
+            valid_dataset = torchvision.datasets.CIFAR10(
+                root=data_path, train=False, download=True, transform=valid_transforms)
 
     train_models = []
     for idx, arch in enumerate(args.arch):
