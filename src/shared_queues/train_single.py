@@ -57,13 +57,13 @@ parser.add_argument('--pretrained', action='store_true', help="use pretrained mo
 if __name__ == "__main__":
 
     args = parser.parse_args()
-
+    args.seed = 1234
     if args.seed is not None:
         print(f"Setting seed {args.seed}")
         random.seed(args.seed)
         torch.manual_seed(args.seed)
-        cudnn.deterministic = False
-        cudnn.benchmark = False
+        #cudnn.deterministic = False
+        #cudnn.benchmark = False
         print('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
                       'which can slow down your training considerably!')
@@ -78,6 +78,8 @@ if __name__ == "__main__":
         INPUT_SIZE = 64
     if args.dataset == "imagenet128x128":
         INPUT_SIZE = 128
+    if args.dataset == "cifar10":
+        INPUT_SIZE = 32
     
     if not args.use_dali:
         train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
@@ -111,12 +113,19 @@ if __name__ == "__main__":
 
                 train_dataset = DatasetFromSubset(train_set, train_transforms)
                 valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+        elif args.dataset == "cifar10":
+            train_dataset = torchvision.datasets.CIFAR10(
+                root=data_path, train=True, download=True, transform=train_transforms)
+            valid_dataset = torchvision.datasets.CIFAR10(
+                root=data_path, train=False, download=True, transform=valid_transforms)
     else:
         if args.dataset == "compcars":
             images_train = data_path / "compcars" / "image_train"
             images_valid = data_path / "compcars" / "image_valid"
         elif args.dataset in ("imagenet", "imagenet_10pct", "imagenet64x64", "imagenet64_images"):
-            print(args.dataset)
+            images_train = data_path / args.dataset / "train"
+            images_valid = data_path / args.dataset / "val"
+        elif args.dataset == "cifar10":
             images_train = data_path / args.dataset / "train"
             images_valid = data_path / args.dataset / "val"
         print("Using DALI dataloaders!")

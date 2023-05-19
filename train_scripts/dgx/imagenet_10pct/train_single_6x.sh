@@ -22,6 +22,31 @@ fi
     --batch-size $BATCH_SIZE --training-workers 12 --validation-workers 1 \
     --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
 
+/home/neni/.conda/envs/thesis/bin/python src/shared_queues/train_single.py --log-interval 100 \
+    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
+    --batch-size $BATCH_SIZE --training-workers 12 --validation-workers 1 \
+    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
+
+/home/neni/.conda/envs/thesis/bin/python src/shared_queues/train_single.py --log-interval 100 \
+    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
+    --batch-size $BATCH_SIZE --training-workers 12 --validation-workers 1 \
+    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
+
+/home/neni/.conda/envs/thesis/bin/python src/shared_queues/train_single.py --log-interval 100 \
+    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
+    --batch-size $BATCH_SIZE --training-workers 12 --validation-workers 1 \
+    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
+
+/home/neni/.conda/envs/thesis/bin/python src/shared_queues/train_single.py --log-interval 100 \
+    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
+    --batch-size $BATCH_SIZE --training-workers 12 --validation-workers 1 \
+    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
+
+/home/neni/.conda/envs/thesis/bin/python src/shared_queues/train_single.py --log-interval 100 \
+    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
+    --batch-size $BATCH_SIZE --training-workers 12 --validation-workers 1 \
+    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
+
     #--debug_data_dir "${DEBUG_DIR}train_single_debug" &
 
 training_main_proc=$!

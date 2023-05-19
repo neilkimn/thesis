@@ -27,7 +27,7 @@ training_main_proc=$!
 
 echo "Starting training process with PID $training_main_proc"
 
-mpstat 1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
+mpstat 1 -P 0-11 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
 trace_cpu_pid=$!
 
 nvidia-smi pmon -i 2 -s um -o DT -f ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_gpu.out &

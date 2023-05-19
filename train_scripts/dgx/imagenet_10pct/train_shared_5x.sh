@@ -1,6 +1,6 @@
 #!/bin/bash
 
-LOG_DIR="/home/neni/repos/thesis/logs_all/single_runs"
+LOG_DIR="/home/neni/repos/thesis/logs_all/queues"
 DEBUG_DIR="/home/neni/repos/thesis/debug_data/"
 CUDA_VISIBLE_DEVICES=2
 
@@ -17,12 +17,11 @@ fi
 
 #sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
 
-/home/neni/.conda/envs/thesis/bin/python src/shared_queues/train_single.py --log-interval 100 \
-    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
-    --batch-size $BATCH_SIZE --training-workers 12 --validation-workers 1 \
-    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
-
-    #--debug_data_dir "${DEBUG_DIR}train_single_debug" &
+/home/neni/.conda/envs/thesis/bin/python src/shared_queues/train_multiple.py --log-interval 100 \
+    --arch resnet18 resnet18 resnet18 resnet18 resnet18 --epochs $EPOCHS --pretrained true true true true true --dataset $DATASET \
+    --num-processes 5 --batch-size $BATCH_SIZE --training-workers 12 --validation-workers 1 \
+    --log_dir "${LOG_DIR}/${DATASET}/${MODEL_NAME}" --record_first_batch_time $1 & 
+    #--debug_data_dir "${DEBUG_DIR}train_queues_debug" 
 
 training_main_proc=$!
 

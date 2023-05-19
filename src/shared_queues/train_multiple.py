@@ -5,7 +5,6 @@ import torchvision
 import torchvision.transforms as transforms
 import torchvision.models as models
 import torchvision.datasets as datasets
-from dali_dataset import DALIDataset
 
 import torch.multiprocessing as mp
 from torch.multiprocessing import Process, Queue, JoinableQueue
@@ -316,6 +315,8 @@ if __name__ == "__main__":
 
     if args.dataset == "imagenet64x64":
         INPUT_SIZE = 64
+    if args.dataset == "cifar10":
+        INPUT_SIZE = 32
     
     if not args.use_dali:
         train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
@@ -344,6 +345,11 @@ if __name__ == "__main__":
 
             train_dataset = DatasetFromSubset(train_set, train_transforms)
             valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+        elif args.dataset == "cifar10":
+            train_dataset = torchvision.datasets.CIFAR10(
+                root=data_path, train=True, download=True, transform=train_transforms)
+            valid_dataset = torchvision.datasets.CIFAR10(
+                root=data_path, train=False, download=True, transform=valid_transforms)
 
     train_models = []
     for idx, arch in enumerate(args.arch):
@@ -376,7 +382,7 @@ if __name__ == "__main__":
                 batch_size=args.batch_size,
                 shuffle=True,
                 num_workers=args.training_workers,
-                pin_memory=False,
+                pin_memory=True,
                 prefetch_factor=args.prefetch_factor,
                 persistent_workers=True,
                 drop_last=True
@@ -408,6 +414,7 @@ if __name__ == "__main__":
             producers.append(p)
             p.start()
     else:
+        from dali_dataset import DALIDataset
         for i in range(1):
             p = Process(target=dali_producer, args = ((queues, device, args, producer_alive)))
             producers.append(p)
