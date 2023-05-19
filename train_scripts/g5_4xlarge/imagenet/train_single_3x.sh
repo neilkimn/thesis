@@ -6,7 +6,7 @@ CUDA_VISIBLE_DEVICES=0
 
 MODEL="resnet18"
 BATCH_SIZE=128
-DATASET="imagenet_10pct"
+DATASET="imagenet"
 MODEL_NAME="${MODEL}_bs_${BATCH_SIZE}"
 EPOCHS=3
 WORKERS=16
@@ -50,7 +50,10 @@ trace_gpu_pid=$!
 iostat 1 -m -t nvme0n1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_io.out &
 trace_io_pid=$!
 
-echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid) and nvidia-smi (PID: $trace_gpu_pid)"
+free -m -s 1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_free.out &
+free_pid=$!
+
+echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid), nvidia-smi (PID: $trace_gpu_pid) and free (PID: $free_pid)"
 
 while kill -0 "$training_main_proc"; do
     sleep 5
@@ -61,3 +64,4 @@ sleep 20
 kill $trace_cpu_pid
 kill $trace_gpu_pid
 kill $trace_io_pid
+kill $free_pid

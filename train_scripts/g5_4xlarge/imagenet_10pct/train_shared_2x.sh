@@ -1,7 +1,7 @@
 #!/bin/bash
 
-LOG_DIR="/home/kafka/repos/thesis/logs_all/queues"
-DEBUG_DIR="/home/kafka/repos/thesis/debug_data/"
+LOG_DIR="/home/ubuntu/repos/thesis/logs_all/queues"
+DEBUG_DIR="/home/ubuntu/repos/thesis/debug_data/"
 CUDA_VISIBLE_DEVICES=0
 
 MODEL="resnet18"
@@ -28,7 +28,7 @@ training_main_proc=$!
 
 echo "Starting training process with PID $training_main_proc"
 
-mpstat 1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
+mpstat 1 -P 0-15 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
 trace_cpu_pid=$!
 
 nvidia-smi pmon -s um -o DT -f ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_gpu.out &
