@@ -24,6 +24,7 @@ logs_8cpu/
 logs_4cpu/
 logs_dgx/
 logs_desktop/
+logs_rebelrig/
 *.sqlite
 *.nsys-rep
 dali_example.py
