@@ -283,7 +283,7 @@ def create_pipeline_imagenet(batch_size, num_threads, data_dir, input_size):
 
         
         images = fn.transpose(images, output_layout=output_layout) # Transform from HWC -> CHW
-
+        
         images = fn.normalize(
             images, 
             dtype=types.FLOAT,
@@ -295,6 +295,51 @@ def create_pipeline_imagenet(batch_size, num_threads, data_dir, input_size):
 
         return images.gpu(), labels.gpu()
     return _create_pipeline(data_dir, input_size)
+
+class PipelineCifar10:
+    def __init__(self, batch_size, num_threads, data_dir, input_size, prefetch=2):
+        self.batch_size = batch_size
+        self.num_threads = num_threads
+        self.data_dir = data_dir
+        self.input_size = input_size
+        self.prefetch = prefetch
+        self.make_pipe()
+        self.pipe.build()
+        self.dataset = DALIClassificationIterator(
+            self.pipe,
+            #["data", "label"],
+            reader_name="Reader",
+            last_batch_policy=LastBatchPolicy.DROP,
+        )
+
+    def make_pipe(self):
+        self.pipe = Pipeline(
+            batch_size=self.batch_size, 
+            num_threads=self.num_threads, 
+            device_id=0,
+            prefetch_queue_depth=self.prefetch
+        )
+        with self.pipe:
+            images, labels = fn.readers.file(file_root=self.data_dir,
+                                     random_shuffle=True,
+                                     pad_last_batch=True,
+                                     name="Reader")
+
+            images = fn.decoders.image(images, device = "mixed")
+
+            mirror = fn.random.coin_flip(probability=0.5)
+
+            images = fn.crop_mirror_normalize(images.gpu(),
+                                    dtype=types.FLOAT,
+                                    output_layout="CHW",
+                                    crop=(self.input_size, self.input_size),
+                                    mean=[0.49139968 * 255., 0.48215827 * 255., 0.44653124 * 255.],
+                                    std=[0.24703233 * 255., 0.24348505 * 255., 0.26158768 * 255.],
+                                    mirror=mirror)
+
+            labels = fn.squeeze(labels, axes=[0])
+            labels = labels.gpu()
+            self.pipe.set_outputs(images, labels)
 
 
 class DALIDataset:
@@ -309,7 +354,7 @@ class DALIDataset:
                 self.batch_size, 
                 self.num_workers, 
                 self.path, 
-                self.batch_size
+                self.input_size
             )
             self.dataset = pipe_class.dataset
 
@@ -318,7 +363,15 @@ class DALIDataset:
                 self.batch_size, 
                 self.num_workers, 
                 self.path, 
-                self.batch_size
+                self.input_size
+            )
+            self.dataset = pipe_class.dataset
+        if dataset_name == "cifar10":
+            pipe_class = PipelineCifar10(
+                self.batch_size,
+                self.num_workers,
+                self.path,
+                self.input_size,
             )
             self.dataset = pipe_class.dataset
 

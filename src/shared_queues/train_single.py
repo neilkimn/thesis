@@ -127,7 +127,7 @@ if __name__ == "__main__":
             images_valid = data_path / args.dataset / "val"
         elif args.dataset == "cifar10":
             images_train = data_path / args.dataset / "train"
-            images_valid = data_path / args.dataset / "val"
+            images_valid = data_path / args.dataset / "test"
         print("Using DALI dataloaders!")
         train_loader = DALIDataset(args.dataset, images_train, args.batch_size, args.training_workers, INPUT_SIZE)
         valid_loader = DALIDataset(args.dataset, images_valid, args.batch_size, args.validation_workers, INPUT_SIZE)
