@@ -80,6 +80,7 @@ def dali_producer(qs, device, args, producer_alive):
     if args.dataset in ("imagenet", "imagenet64x64", "imagenet_10pct"):
         images_train = data_path / args.dataset / "train"
         images_valid = data_path / args.dataset / "val"
+        INPUT_SIZE = 224
     if args.dataset == "cifar10":
         images_train = data_path / args.dataset / "train"
         images_valid = data_path / args.dataset / "test"
