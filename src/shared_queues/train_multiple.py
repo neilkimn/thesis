@@ -65,6 +65,7 @@ def count_parameters(model):
 
 
 def dali_producer(qs, device, args, producer_alive):
+    from dali_dataset import DALIDataset
     pid = os.getpid()
     if args.seed:
         torch.manual_seed(args.seed)
@@ -79,7 +80,11 @@ def dali_producer(qs, device, args, producer_alive):
     if args.dataset in ("imagenet", "imagenet64x64", "imagenet_10pct"):
         images_train = data_path / args.dataset / "train"
         images_valid = data_path / args.dataset / "val"
-        
+    if args.dataset == "cifar10":
+        images_train = data_path / args.dataset / "train"
+        images_valid = data_path / args.dataset / "test"
+        INPUT_SIZE = 32
+
     train_loader = DALIDataset(args.dataset, images_train, args.batch_size, args.training_workers, INPUT_SIZE)
     valid_loader = DALIDataset(args.dataset, images_valid, args.batch_size, args.validation_workers, INPUT_SIZE)
     
@@ -433,6 +438,12 @@ if __name__ == "__main__":
             args.train_loader_len = 1001
             args.valid_dataset_len = 49995
             args.valid_loader_len = 390
+        if args.dataset == "cifar10":
+            args.train_dataset_len = 50000
+            args.train_loader_len = 50000 / args.batch_size
+            args.valid_dataset_len = 10000
+            args.valid_loader_len = 10000 / args.batch_size
+
 
     args.device = device
     finished_workers = Counter(0)
