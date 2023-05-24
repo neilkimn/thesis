@@ -42,6 +42,7 @@ parser.add_argument('--validation-workers', type=int, default=1)
 parser.add_argument('--prefetch-factor', type=int, default=1)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--epochs', type=int, default=5)
+parser.add_argument('--use-dali', action='store_true', help="whether to use DALI for data-loading")
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('-a','--arch', nargs='+', metavar='ARCH', help='model architecture: ' +
@@ -59,30 +60,74 @@ parser.add_argument('--pretrained', nargs='+', metavar="PRETRAIN", help="Whether
 parser.add_argument('--dummy_data', action='store_true', help="use fake data to benchmark")
 parser.add_argument('--record_first_batch_time', action='store_true', help="Don't skip measuring time spent on first batch")
 
-train_transforms = transforms.Compose(
-    [
-        transforms.Resize((INPUT_SIZE, INPUT_SIZE)),
-        transforms.RandomVerticalFlip(p=0.5),
-        transforms.RandomPerspective(p=0.5),
+def dali_producer(qs, device, args, producer_alive):
+    from dali_dataset import DALIDataset
+    pid = os.getpid()
+    if args.seed:
+        torch.manual_seed(args.seed)
+    if args.debug_data_dir:
+        if args.overwrite_debug_data:
+            shutil.rmtree(args.debug_data_dir)
+    debug_indices_path, debug_indices_val_path = None, None
 
-        transforms.RandomApply(torch.nn.ModuleList([
-            transforms.ColorJitter(contrast=0.5, saturation=0.5, hue=0.5),
-        ]), p=0.5),
+    if args.dataset == "compcars":
+        images_train = data_path / args.dataset / "image_train"
+        images_valid = data_path / args.dataset / "image_valid"
+    if args.dataset in ("imagenet", "imagenet64x64", "imagenet_10pct"):
+        images_train = data_path / args.dataset / "train"
+        images_valid = data_path / args.dataset / "val"
+        INPUT_SIZE = 224
+    if args.dataset == "cifar10":
+        images_train = data_path / args.dataset / "train"
+        images_valid = data_path / args.dataset / "test"
+        INPUT_SIZE = 32
 
-        transforms.RandomApply(torch.nn.ModuleList([
-            transforms.Grayscale(num_output_channels=3),
-        ]), p=0.5),
+    train_loader = DALIDataset(args.dataset, images_train, args.batch_size, args.training_workers, INPUT_SIZE)
+    valid_loader = DALIDataset(args.dataset, images_valid, args.batch_size, args.validation_workers, INPUT_SIZE)
+    
+    args.train_dataset_len = len(train_loader)
+    args.train_loader_len = len(train_loader)
+    args.valid_dataset_len = len(valid_loader)
+    args.valid_loader_len = len(valid_loader)
 
-        transforms.ToTensor(),
-    ]
-)
+    for epoch in range(1, args.epochs+1):
+        if args.debug_data_dir:
+            debug_indices_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_indices.txt"
+            debug_indices_path.parent.mkdir(parents=True, exist_ok=True)
 
-valid_transforms = transforms.Compose(
-    [
-        transforms.Resize((INPUT_SIZE, INPUT_SIZE)),
-        transforms.ToTensor(),
-    ]
-)
+        for idx, data in enumerate(train_loader.dataset):
+            inputs, labels = data[0]["data"], data[0]["label"]
+            indices = None
+            labels = labels.long()
+            inputs = Variable(inputs.to(device))
+            labels = Variable(labels.to(device))
+            for q in qs:
+                q.queue.put((idx, inputs, labels, epoch, "train", indices))
+            
+            #write_debug_indices(indices, debug_indices_path, args)
+
+        # end of training for epoch, switch to eval
+        if epoch > 10:
+            if args.debug_data_dir:
+                debug_indices_val_path = Path(args.debug_data_dir) / f"epoch_{epoch}" / f"{pid}_producer_val_indices.txt"
+                debug_indices_val_path.parent.mkdir(parents=True, exist_ok=True)
+
+            for idx, data in enumerate(valid_loader.dataset):
+                inputs, labels = data[0]["data"], data[0]["label"]
+                indices = None
+                labels = labels.long()
+                inputs = Variable(inputs.to(device))
+                labels = Variable(labels.to(device))
+
+                for q in qs:
+                    q.queue.put((idx, inputs, labels, epoch, "valid", indices))
+
+                #write_debug_indices(indices, debug_indices_val_path, args)
+        
+        for q in qs:
+            q.queue.put((0, None, None, epoch, "end", None))
+    producer_alive.wait()
+
 
 def producer(loader, valid_loader, qs, device, args, producer_alive, optimize_mps=None):
     if args.seed:
@@ -305,33 +350,43 @@ if __name__ == "__main__":
 
     if args.dataset == "imagenet64x64":
         INPUT_SIZE = 64
+    if args.dataset == "cifar10":
+        INPUT_SIZE = 32
     
     train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
 
-    if args.dataset in ["imagenet", "imagenet64x64"]:
-        traindir = os.path.join(data_path / args.dataset, 'train')
-        valdir = os.path.join(data_path / args.dataset, 'val')
+    if not args.use_dali:
+        train_transforms, valid_transforms = get_transformations(args.dataset, INPUT_SIZE)
 
-        train_dataset = datasets.ImageFolder(
-            traindir,
-            train_transforms)
-        
-        valid_dataset = datasets.ImageFolder(
-            valdir,
-            valid_transforms)
+        if args.dataset in ["imagenet", "imagenet_10pct", "imagenet64x64"]:
+            traindir = os.path.join(data_path / args.dataset, 'train')
+            valdir = os.path.join(data_path / args.dataset, 'val')
 
-    elif args.dataset == "compcars":
-        labels = ads3.get_labels()
-        file_train = data_path / "compcars" / "train.txt"
-        folder_images = data_path / "compcars" / "image"
-        dataset = CarDataset(file_path=file_train, folder_images=folder_images, labels=labels)
+            train_dataset = datasets.ImageFolder(
+                traindir,
+                train_transforms)
+            
+            valid_dataset = datasets.ImageFolder(
+                valdir,
+                valid_transforms)
 
-        train_len = int(0.7 * len(dataset))
-        valid_len = len(dataset) - train_len
-        train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
+        elif args.dataset == "compcars":
+            labels = ads3.get_labels()
+            file_train = data_path / "compcars" / "train.txt"
+            folder_images = data_path / "compcars" / "image"
+            dataset = CarDataset(file_path=file_train, folder_images=folder_images, labels=labels)
 
-        train_dataset = DatasetFromSubset(train_set, train_transforms)
-        valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+            train_len = int(0.7 * len(dataset))
+            valid_len = len(dataset) - train_len
+            train_set, valid_set = D.random_split(dataset, lengths=[train_len, valid_len], generator=torch.Generator().manual_seed(42))
+
+            train_dataset = DatasetFromSubset(train_set, train_transforms)
+            valid_dataset = DatasetFromSubset(valid_set, valid_transforms)
+        elif args.dataset == "cifar10":
+            train_dataset = torchvision.datasets.CIFAR10(
+                root=data_path, train=True, download=True, transform=train_transforms)
+            valid_dataset = torchvision.datasets.CIFAR10(
+                root=data_path, train=False, download=True, transform=valid_transforms)
 
     train_models = []
     for idx, arch in enumerate(args.arch):
@@ -359,7 +414,7 @@ if __name__ == "__main__":
 
     model_names = "_".join([model.name for model in train_models])
 
-    mps_log_path = Path(f"/home/neni/repos/thesis/logs_debug/mps/mps_log_{model_names}_pid_{parent_pid}.csv")
+    mps_log_path = Path(f"logs_debug/mps/mps_log_{model_names}_pid_{parent_pid}.csv")
     print(f"Writing MPS weight logs to {mps_log_path}")
     
     mps_weights = MPSWeights(args.num_processes, max_size=mps_queue_size, increment=4, update_interval=10, log_path=mps_log_path)
@@ -452,8 +507,8 @@ if __name__ == "__main__":
     finished_workers = Counter(0)
     workers = []
     for i in range(args.num_processes):
-        print(f"Setting MPS threads to {mps_weights[i]}")
-        os.environ['CUDA_MPS_ACTIVE_THREAD_PERCENTAGE'] = str(mps_weights[i])
+        print(f"Setting MPS threads to {mps_weights[i]*3}")
+        os.environ['CUDA_MPS_ACTIVE_THREAD_PERCENTAGE'] = str(mps_weights[i]*2)
         p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args, producer_alive, finished_workers, mps_time)))
         workers.append(p)
         p.start()
