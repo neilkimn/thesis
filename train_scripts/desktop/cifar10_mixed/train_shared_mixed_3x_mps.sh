@@ -1,6 +1,6 @@
 #!/bin/bash
 
-LOG_DIR="/home/kafka/repos/thesis/logs_debug/queues"
+LOG_DIR="/home/kafka/repos/thesis/logs_desktop_mixed/queues"
 DEBUG_DIR="/home/kafka/repos/thesis/debug_data/"
 CUDA_VISIBLE_DEVICES=0
 
@@ -8,7 +8,7 @@ MODEL="resnet18"
 BATCH_SIZE=128
 DATASET="cifar10"
 MODEL_NAME="${MODEL}_bs_${BATCH_SIZE}"
-EPOCHS=3
+EPOCHS=11
 
 sleep 1
 if [[ ! -e ${LOG_DIR}/${DATASET}/${MODEL_NAME} ]]; then

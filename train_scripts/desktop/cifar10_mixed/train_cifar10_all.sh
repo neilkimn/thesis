@@ -1,10 +1,11 @@
 #!/bin/bash
 
 # Naive
-/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/train_naive_mixed_3x.sh
+#/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/train_naive_mixed_3x.sh
+#/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/train_naive_mixed_3x_at_once.sh
 
 # Naive MPS
-#/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/run_mps.sh
+#/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/run_mps.sh /home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/train_naive_mixed_3x_at_once.sh
 
 # Shared
 #/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/train_shared_mixed_2x_mps.sh
@@ -12,7 +13,7 @@
 
 # Shared MPS
 #/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/run_mps.sh /home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/train_shared_mixed_2x_mps.sh
-#/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/run_mps.sh /home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/train_shared_mixed_3x_mps.sh
+/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/run_mps.sh /home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/train_shared_mixed_3x_mps.sh
 
 # Shared MPS weights
 #/home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/run_mps.sh /home/kafka/repos/thesis/train_scripts/desktop/cifar10_mixed/train_shared_mixed_2x_weights.sh

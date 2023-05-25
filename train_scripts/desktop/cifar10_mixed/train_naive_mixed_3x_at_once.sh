@@ -22,6 +22,18 @@ sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
     --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
     --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
 
+/home/kafka/miniconda3/envs/thesis/bin/python src/shared_queues/train_single.py \
+    --log-interval 10 --epochs $EPOCHS --arch "resnet34" --pretrained --dataset $DATASET \
+    --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
+    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
+
+/home/kafka/miniconda3/envs/thesis/bin/python src/shared_queues/train_single.py \
+    --log-interval 10 --epochs $EPOCHS --arch "resnet50" --pretrained --dataset $DATASET \
+    --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
+    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
+
+    #--debug_data_dir "${DEBUG_DIR}train_single_debug" &
+
 training_main_proc=$!
 
 echo "Starting training process with PID $training_main_proc"
@@ -40,22 +52,10 @@ trace_io_pid=$!
 echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid) and nvidia-smi (PID: $trace_gpu_pid)"
 
 while kill -0 "$training_main_proc"; do
-    sleep 1
+    sleep 5
 done
 
-/home/kafka/miniconda3/envs/thesis/bin/python src/shared_queues/train_single.py \
-    --log-interval 10 --epochs $EPOCHS --arch "resnet34" --pretrained --dataset $DATASET \
-    --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
-    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1
-
-/home/kafka/miniconda3/envs/thesis/bin/python src/shared_queues/train_single.py \
-    --log-interval 10 --epochs $EPOCHS --arch "resnet50" --pretrained --dataset $DATASET \
-    --batch-size $BATCH_SIZE --training-workers 8 --validation-workers 1 \
-    --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1
-
-    #--debug_data_dir "${DEBUG_DIR}train_single_debug" &
-
-sleep 10
+sleep 20
 
 kill $trace_cpu_pid
 kill $trace_gpu_pid
