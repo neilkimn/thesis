@@ -24,7 +24,9 @@ logs_16cpu/
 logs_8cpu/
 logs_4cpu/
 logs_dgx/
+logs_old/*
 logs_desktop/
+logs_g5_mixed/
 logs_rebelrig/
 *.sqlite
 *.nsys-rep
