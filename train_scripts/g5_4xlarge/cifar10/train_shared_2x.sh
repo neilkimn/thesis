@@ -37,7 +37,10 @@ trace_gpu_pid=$!
 iostat 1 -m -t nvme0n1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_io.out &
 trace_io_pid=$!
 
-echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid) and nvidia-smi (PID: $trace_gpu_pid)"
+dcgmi dmon -i 0 -e 200,201,203,204,210,211,1002,1003,1004,1005,1009,1010 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_dcgm.out &
+dcgm_pid=$!
+
+echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid), nvidia-smi (PID: $trace_gpu_pid) and dcgmi (PID: $dcgm_pid)"
 
 while kill -0 "$training_main_proc"; do
     sleep 5
@@ -48,3 +51,4 @@ sleep 20
 kill $trace_cpu_pid
 kill $trace_gpu_pid
 kill $trace_io_pid
+kill $dcgm_pid

@@ -6,9 +6,9 @@ CUDA_VISIBLE_DEVICES=0
 
 MODEL="resnet18"
 BATCH_SIZE=128
-DATASET="cifar10"
+DATASET="imagenet_10pct"
 MODEL_NAME="${MODEL}_bs_${BATCH_SIZE}"
-EPOCHS=11
+EPOCHS=3
 WORKERS=16
 
 sleep 1
@@ -19,8 +19,8 @@ fi
 sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
 
 /home/ubuntu/miniconda3/envs/thesis/bin/python src/shared_queues/train_multiple.py \
-    --arch resnet18 --epochs $EPOCHS --pretrained true --dataset $DATASET \
-    --num-processes 1 --batch-size $BATCH_SIZE --training-workers $WORKERS --validation-workers 1 \
+    --arch resnet18 resnet18 resnet18 resnet18 resnet18 --epochs $EPOCHS --pretrained true true true true true --dataset $DATASET \
+    --num-processes 5 --batch-size $BATCH_SIZE --training-workers $WORKERS --validation-workers 1 \
     --log_dir "${LOG_DIR}/${DATASET}/${MODEL_NAME}" --record_first_batch_time $1 & 
     #--debug_data_dir "${DEBUG_DIR}train_queues_debug" 
 
@@ -40,7 +40,10 @@ trace_io_pid=$!
 dcgmi dmon -i 0 -e 200,201,203,204,210,211,1002,1003,1004,1005,1009,1010 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_dcgm.out &
 dcgm_pid=$!
 
-echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid), nvidia-smi (PID: $trace_gpu_pid) and dcgmi (PID: $dcgm_pid)"
+free -m -s 1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_free.out &
+free_pid=$!
+
+echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid), nvidia-smi (PID: $trace_gpu_pid), dcgmi (PID: $dcgm_pid) and free (PID: $free_pid)"
 
 while kill -0 "$training_main_proc"; do
     sleep 5
@@ -52,3 +55,4 @@ kill $trace_cpu_pid
 kill $trace_gpu_pid
 kill $trace_io_pid
 kill $dcgm_pid
+kill $free_pid

@@ -31,3 +31,4 @@ logs_rebelrig/
 *.sqlite
 *.nsys-rep
 dali_example.py
+*.zip
