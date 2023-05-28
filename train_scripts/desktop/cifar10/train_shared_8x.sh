@@ -1,6 +1,6 @@
 #!/bin/bash
 
-LOG_DIR="/home/kafka/repos/thesis/logs_desktop/queues"
+LOG_DIR="/home/kafka/repos/thesis/logs_desktop/queues_2"
 DEBUG_DIR="/home/kafka/repos/thesis/debug_data/"
 CUDA_VISIBLE_DEVICES=0
 

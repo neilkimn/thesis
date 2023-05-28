@@ -17,6 +17,7 @@ logs_2/*
 logs_imagenet/*
 logs_bpf/*
 logs_g5/*
+logs_g5_mixed/
 logs_all/*
 logs_debug/*
 logs_dali/*
@@ -27,7 +28,10 @@ logs_dgx/
 logs_old/*
 logs_desktop/
 logs_g5_mixed/
+logs_desktop_mixed/
 logs_rebelrig/
+logs_rebelrig_old/
+*.zip
 *.sqlite
 *.nsys-rep
 dali_example.py
