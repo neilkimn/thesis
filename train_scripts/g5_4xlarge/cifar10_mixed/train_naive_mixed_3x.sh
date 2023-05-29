@@ -7,8 +7,8 @@ CUDA_VISIBLE_DEVICES=0
 MODEL="resnet18"
 BATCH_SIZE=128
 DATASET="cifar10"
-MODEL_NAME="${MODEL}_bs_${BATCH_SIZE}"
-EPOCHS=11
+MODEL_NAME="${MODEL}_mixed_bs_${BATCH_SIZE}"
+EPOCHS=21
 
 sleep 1
 if [[ ! -e ${LOG_DIR}/${DATASET}/${MODEL_NAME} ]]; then
@@ -37,7 +37,13 @@ trace_gpu_pid=$!
 iostat 1 -m -t nvme0n1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_io.out &
 trace_io_pid=$!
 
-echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid) and nvidia-smi (PID: $trace_gpu_pid)"
+dcgmi dmon -i 0 -e 200,201,203,204,210,211,1002,1003,1004,1005,1009,1010 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_dcgm.out &
+dcgm_pid=$!
+
+free -m -s 1 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_free.out &
+free_pid=$!
+
+echo "Started mpstat (PID: $trace_cpu_pid), iostat (PID: $trace_io_pid), nvidia-smi (PID: $trace_gpu_pid), dcgmi (PID: $dcgm_pid) and free (PID: $free_pid)"
 
 while kill -0 "$training_main_proc"; do
     sleep 1
@@ -60,3 +66,5 @@ sleep 10
 kill $trace_cpu_pid
 kill $trace_gpu_pid
 kill $trace_io_pid
+kill $dcgm_pid
+kill $free_pid

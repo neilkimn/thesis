@@ -7,7 +7,7 @@
 #/home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/train_naive_mixed_3x_at_once.sh --use-dali
 
 # Naive MPS
-#/home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/run_mps.sh /home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/train_naive_mixed_3x_at_once.sh
+#/home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/run_mps.sh /home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/train_naive_mixed_6x_at_once.sh
 #/home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/run_mps.sh /home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/train_naive_mixed_3x_at_once.sh --use-dali
 
 # Shared
@@ -15,8 +15,7 @@
 #/home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/train_shared_mixed_3x_mps.sh --use-dali
 
 # Shared MPS
-/home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/run_mps.sh /home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/train_shared_mixed_3x_mps.sh
-#/home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/run_mps.sh /home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/train_shared_mixed_3x_mps.sh
+/home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/run_mps.sh /home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/train_shared_mixed_6x_mps.sh
 #/home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/run_mps.sh /home/ubuntu/repos/thesis/train_scripts/g5_4xlarge/cifar10_mixed/train_shared_mixed_3x_mps.sh --use-dali
 
 # Shared MPS weights

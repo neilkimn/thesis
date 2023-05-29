@@ -1,14 +1,15 @@
 #!/bin/bash
 
-LOG_DIR="/home/ubuntu/repos/thesis/logs_g5_mixed/single_runs"
+LOG_DIR="/home/ubuntu/repos/thesis/logs_4cpu/single_runs"
 DEBUG_DIR="/home/ubuntu/repos/thesis/debug_data/"
 CUDA_VISIBLE_DEVICES=0
 
 MODEL="resnet18"
 BATCH_SIZE=128
-DATASET="imagenet_10pct"
+DATASET="compcars"
 MODEL_NAME="${MODEL}_bs_${BATCH_SIZE}"
-EPOCHS=10
+EPOCHS=3
+WORKERS=4
 
 sleep 1
 if [[ ! -e ${LOG_DIR}/${DATASET}/${MODEL_NAME} ]]; then
@@ -19,17 +20,17 @@ sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
 
 /home/ubuntu/miniconda3/envs/thesis/bin/python src/shared_queues/train_single.py \
     --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
-    --batch-size $BATCH_SIZE --training-workers 16 --validation-workers 1 \
+    --batch-size $BATCH_SIZE --training-workers $WORKERS --validation-workers 1 \
     --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
 
 /home/ubuntu/miniconda3/envs/thesis/bin/python src/shared_queues/train_single.py \
-    --log-interval 10 --epochs $EPOCHS --arch "resnet34" --pretrained --dataset $DATASET \
-    --batch-size $BATCH_SIZE --training-workers 16 --validation-workers 1 \
+    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
+    --batch-size $BATCH_SIZE --training-workers $WORKERS --validation-workers 1 \
     --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
 
 /home/ubuntu/miniconda3/envs/thesis/bin/python src/shared_queues/train_single.py \
-    --log-interval 10 --epochs $EPOCHS --arch "resnet50" --pretrained --dataset $DATASET \
-    --batch-size $BATCH_SIZE --training-workers 16 --validation-workers 1 \
+    --log-interval 10 --epochs $EPOCHS --arch "resnet18" --pretrained --dataset $DATASET \
+    --batch-size $BATCH_SIZE --training-workers $WORKERS --validation-workers 1 \
     --log_path "${LOG_DIR}/${DATASET}/${MODEL_NAME}" $1 &
 
     #--debug_data_dir "${DEBUG_DIR}train_single_debug" &
@@ -38,7 +39,7 @@ training_main_proc=$!
 
 echo "Starting training process with PID $training_main_proc"
 
-mpstat 1 -P 0-15 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
+mpstat 1 -P 0-3 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
 trace_cpu_pid=$!
 
 nvidia-smi pmon -s um -o DT -f ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_gpu.out &
