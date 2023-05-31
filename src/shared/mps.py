@@ -95,7 +95,7 @@ class MPSWeights(Sequence):
                                str(self.weights[i]),str(self.percentages[i]),str(self.convergence_counter.value()))
 
         # Check if queue sizes were roughly the same and that both biggest queue size recorded and current queue size is not 0
-        if abs(qsize - self.biggest_queue.value()) <= 2 and (self.biggest_queue.value() != 0 and qsize != 0):
+        if abs(qsize - self.biggest_queue.value()) <= 3 and (self.biggest_queue.value() != 0 and qsize != 0):
             # If above is the case, we deem the queues equal and increment towards convergence
             self.equals.increment()
         elif qsize > self.biggest_queue.value():

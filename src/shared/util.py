@@ -172,7 +172,7 @@ def get_transformations(dataset, input_size):
             ]
         )
 
-    elif dataset in ("imagenet", "imagenet64x64", "imagenet128x128"):
+    elif dataset in ("imagenet", "imagenet_10pct", "imagenet64x64", "imagenet128x128", "imagenet64_images"):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
@@ -189,5 +189,18 @@ def get_transformations(dataset, input_size):
                 transforms.ToTensor(),
                 normalize,
             ])
+    elif dataset == "cifar10":
+        train_transforms = transforms.Compose([
+            transforms.RandomCrop(input_size, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+
+        valid_transforms = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+
     return train_transforms, valid_transforms
 
