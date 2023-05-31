@@ -21,9 +21,9 @@ logs_g5_mixed/
 logs_all/*
 logs_debug/*
 logs_dali/*
-logs_16cpu/
-logs_8cpu/
-logs_4cpu/
+logs_16cpu_g5/
+logs_8cpu_g5/
+logs_4cpu_g5/
 logs_dgx/
 logs_old/*
 logs_desktop/
