@@ -1,3 +1,4 @@
+from typing import Any
 import torch
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -9,9 +10,11 @@ import time
 from pathlib import Path
 
 from shared_queues.dataset import DatasetFromSubset
+from detectron2.solver import build_lr_scheduler, build_optimizer
+from detectron2.utils.events import EventStorage
 
 class ProcTrainer:
-    def __init__(self, args, model, device):
+    def __init__(self, args, model, device, cfg):
         self.args = args
         self.device = device
         self.model = model
@@ -22,17 +25,12 @@ class ProcTrainer:
         if self.args.seed:
             torch.manual_seed(self.args.seed)
 
-        if self.args.dataset == "compcars":
-            num_ftrs = self.model.fc.in_features  # num_ftrs = 2048
-            self.model.fc = torch.nn.Linear(num_ftrs, 431)
-
         self.running_loss = 0.0
         self.train_running_corrects = 0
         self.model.train(True)
 
-        self.optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9)
-        self.scheduler = lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
-        self.criterion = torch.nn.CrossEntropyLoss()
+        self.optimizer = build_optimizer(cfg, model)
+        self.scheduler = build_lr_scheduler(cfg, self.optimizer)
 
         self.val_loss = 0.0
         self.val_correct = 0
@@ -52,18 +50,18 @@ class ProcTrainer:
         self.on_device = True
         self.model.to(self.device)
 
-    def forward(self, inputs, labels):
+    def forward(self, data):
+        with EventStorage() as storage:
+            loss_dict = self.model(data)
+            losses = sum(loss_dict.values())
+            assert torch.isfinite(losses).all(), loss_dict
 
-        self.optimizer.zero_grad()
-        outputs = self.model.forward(Variable(inputs))
-        loss = self.criterion(outputs, Variable(labels))
-        preds = torch.max(outputs, 1)[1]
-        self.train_running_corrects += torch.sum(preds == labels.data)
-        loss.backward()
-        self.optimizer.step()
-        self.running_loss += loss.item()
+            self.optimizer.zero_grad()
+            losses.backward()
+            self.optimizer.step()
+            self.scheduler.step()
 
-        return loss
+            return losses
         
     def end_epoch(self, args):
         train_epoch_acc = float(self.train_running_corrects) / args.train_dataset_len * 100
@@ -92,6 +90,91 @@ class ProcTrainer:
         self.val_acc = 100. * self.val_correct / self.args.valid_dataset_len
 
         return self.val_loss, self.val_acc, self.val_correct
+    
+class RCNNProcTrainer:
+    def __init__(self, args, model, device, name):
+        self.args = args
+        self.device = device
+        self.model = model
+        self.name = name
+        self.on_device = False
+        self.log_name = self.name + f"_bs{args.batch_size}_{args.training_workers}tw_{args.validation_workers}vw_{args.prefetch_factor}pf"
+
+        if self.args.seed:
+            torch.manual_seed(self.args.seed)
+
+        self.running_loss = 0.0
+        self.train_running_corrects = 0
+        self.model.train(True)
+
+        params = [p for p in model.parameters() if p.requires_grad]
+        self.optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9, nesterov=True)
+
+        warmup_factor = 1.0 / 1000
+        warmup_iters = 1000
+        self.scheduler = torch.optim.lr_scheduler.LinearLR(
+            self.optimizer, start_factor=warmup_factor, total_iters=warmup_iters
+        )
+
+        self.val_loss = 0.0
+        self.val_correct = 0
+        self.val_acc = 0.0
+        self.train_loss_list = []
+        self.loss_cls_list = []
+        self.loss_box_reg_list = []
+        self.loss_objectness_list = []
+        self.loss_rpn_list = []
+        self.train_loss_list_epoch = []
+        self.val_map_05 = []
+        self.val_map = []
+        self.start_epochs = 0
+
+    def init_log(self, pid):
+        self.log_name += f"_pid_{pid}"
+        log_path = self.args.log_dir + "/" + self.log_name + ".csv"
+        with open(log_path, "w") as f:
+            f.write("timestamp,epoch,train_acc,valid_acc,train_time,batch_time,valid_time,total_time,train_corr,valid_corr,throughput\n")
+            f.write(f"{int(time.time())},0,0.0,0.0,0.0,0.0,0.0,0.0,0,0,0\n")
+        gpu_path = self.args.log_dir + "/" + self.log_name + "_gpu_util.csv"
+        os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,nounits -f {gpu_path}")
+        return log_path, gpu_path
+
+    def send_model(self):
+        self.on_device = True
+        self.model.to(self.device)
+
+    def forward(self, images, targets):
+        loss_dict = self.model(images, targets)
+        return loss_dict
+        
+    def end_epoch(self, args):
+        train_epoch_acc = float(self.train_running_corrects) / args.train_dataset_len * 100
+        train_running_corrects = self.train_running_corrects
+        self.train_running_corrects = 0
+
+        self.val_loss = 0.0
+        self.val_correct = 0
+        self.val_acc = 0.0
+
+        self.model.train(True)
+        self.scheduler.step()
+
+        return train_epoch_acc, train_running_corrects
+
+    def validate(self, inputs, labels):
+        self.model.eval()
+
+        with torch.no_grad():
+            output = self.model(inputs)
+            self.val_loss += self.criterion(output, labels).item()
+            pred = output.max(1)[1]
+            self.val_correct += pred.eq(labels).sum().item()
+
+        self.val_loss /= self.args.valid_dataset_len
+        self.val_acc = 100. * self.val_correct / self.args.valid_dataset_len
+
+        return self.val_loss, self.val_acc, self.val_correct
+    
     
 class NaiveTrainer:
     def __init__(self, args, model, device, train_dataset, val_dataset):

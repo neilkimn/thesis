@@ -1,0 +1,15 @@
+TRAIN_DIR_IMAGES: '/home/kafka/datasets/coco_minitrain_25k/images/train2017'
+TRAIN_DIR_LABELS: '/home/kafka/datasets/coco_minitrain_25k/labels/train2017'
+VALID_DIR_IMAGES: '/home/kafka/datasets/coco_minitrain_25k/images/val2017'
+VALID_DIR_LABELS: '/home/kafka/datasets/coco_minitrain_25k/labels/val2017'
+
+# Class names.
+CLASSES: [
+    "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic","fire","stop","parking","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports","kite","baseball","baseball","skateboard","surfboard","tennis","bottle","wine","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot","pizza","donut","cake","chair","couch","potted","bed","dining","toilet","tv","laptop","mouse","remote","keyboard","cell","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy","hair","toothbrush","background"
+]
+
+# Number of classes (object classes + 1 for background class in Faster RCNN).
+NC: 80
+
+# Whether to save the predictions of the validation set while training.
+SAVE_VALID_PREDICTION_IMAGES: False
