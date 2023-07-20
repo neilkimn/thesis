@@ -20,7 +20,8 @@ sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
 /opt/conda/envs/thesis/bin/python /home/ubuntu/repos/thesis/src/shared_queues/train_multiple_coco.py \
     --dataset coco --arch $MODEL $MODEL $MODEL --epochs $EPOCHS --lr-steps 16 22 --aspect-ratio-group-factor 3 \
     --weights-backbone ResNet50_Weights.IMAGENET1K_V1 --data-path /raid/datasets/$DATASET \
-    --num-processes 3 --producer-per-worker --record_first_batch_time --batch-size $BATCH_SIZE &
+    --num-processes 3 --producer-per-worker --record_first_batch_time --batch-size $BATCH_SIZE \
+    --log_dir "${LOG_DIR}/${DATASET}/${MODEL_NAME}" &
 training_main_proc=$!
 
 mpstat 1 -P 0-31 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
