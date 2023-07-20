@@ -229,8 +229,8 @@ class Compose(object):
     
 
 def get_coco(root, image_set, transforms, mode="instances"):
-    #anno_file_template = "{}_{}2017.json"
-    anno_file_template = "{}_{}2017_2k.json"
+    anno_file_template = "{}_{}2017.json"
+    #anno_file_template = "{}_{}2017_2k.json"
     PATHS = {
         "train": ("train2017", os.path.join("annotations", anno_file_template.format(mode, "train"))),
         "val": ("val2017", os.path.join("annotations", anno_file_template.format(mode, "val"))),

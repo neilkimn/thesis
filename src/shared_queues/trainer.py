@@ -19,6 +19,7 @@ from timm import utils
 from timm.optim import create_optimizer_v2, optimizer_kwargs
 from timm.scheduler import create_scheduler_v2, scheduler_kwargs
 from contextlib import suppress
+from torch_utils import utils as coco_utils
 
 class TimmTrainer:
     def __init__(self, args, model, device, name):
@@ -194,46 +195,41 @@ import torchvision
 from torch_utils import utils as coco_trainer_utils
 
 class CocoTrainer:
-    def __init__(self, args, model, device):
+    def __init__(self, args, model, device, name):
         self.args = args
         self.device = device
         self.model = model
-        self.name = args.model
+        self.name = name
         self.on_device = False
         self.log_name = self.name + f"_bs{args.batch_size}_{args.training_workers}tw_{args.validation_workers}vw_{args.prefetch_factor}pf"
 
-        self.param_groups = torchvision.ops._utils.split_normalization_params(self.model)
-        self.wd_groups = [args.norm_weight_decay, args.weight_decay]
-        self.parameters = [{"params": p, "weight_decay": w} for p, w in zip(self.param_groups, self.wd_groups) if p]
+        self.current_epoch = 0
+        self.train_running_corrects = 0
+        self.valid_running_corrects = 0
 
+        param_groups = torchvision.ops._utils.split_normalization_params(model)
+        wd_groups = [args.norm_weight_decay, args.weight_decay]
+        parameters = [{"params": p, "weight_decay": w} for p, w in zip(param_groups, wd_groups) if p]
         opt_name = args.opt.lower()
         if opt_name.startswith("sgd"):
             self.optimizer = torch.optim.SGD(
-                self.parameters,
+                parameters,
                 lr=args.lr,
                 momentum=args.momentum,
                 weight_decay=args.weight_decay,
                 nesterov="nesterov" in opt_name,
             )
         elif opt_name == "adamw":
-            self.optimizer = torch.optim.AdamW(self.parameters, lr=args.lr, weight_decay=args.weight_decay)
+            self.optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.weight_decay)
         else:
             raise RuntimeError(f"Invalid optimizer {args.opt}. Only SGD and AdamW are supported.")
-        
-        lr_scheduler = args.lr_scheduler.lower()
-
-        if lr_scheduler == "multisteplr":
-            self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.args.lr_steps, gamma=self.args.lr_gamma)
-        elif lr_scheduler == "cosineannealinglr":
-            self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.args.epochs)
-        else:
-            raise RuntimeError(
-                f"Invalid lr scheduler '{self.args.lr_scheduler}'. Only MultiStepLR and CosineAnnealingLR are supported."
-            )
 
     def send_model(self):
         self.on_device = True
         self.model.to(self.device)
+
+    def set_epoch_lr_scheduler(self, lr_scheduler):
+        self.epoch_lr_scheduler = lr_scheduler
 
     def init_log(self, pid):
         self.log_name += f"_pid_{pid}"
@@ -256,23 +252,22 @@ class CocoTrainer:
             self.lr_scheduler = torch.optim.lr_scheduler.LinearLR(
                 self.optimizer, start_factor=warmup_factor, total_iters=warmup_iters
             )
+        
 
     def forward(self, inputs, targets):
-        with torch.cuda.amp.autocast(enabled=False):
-            loss_dict = self.model(inputs, targets)
-            losses = sum(loss for loss in loss_dict.values())
-        
-        loss_dict_reduced = utils.reduce_dict(loss_dict)
+        loss_dict = self.model(inputs, targets)
+        losses = sum(loss for loss in loss_dict.values())
+        loss_dict_reduced = coco_utils.reduce_dict(loss_dict)
+
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
 
         loss_value = losses_reduced.item()
-
         if not math.isfinite(loss_value):
-            print(f"Loss is {loss_value}, stopping training")
-            print(loss_dict_reduced)
-            sys.exit(1)
-
+            print(f"Loss is {loss_value}")
+            #print(loss_dict_reduced)
+            #sys.exit(1)
         self.optimizer.zero_grad()
+
         losses.backward()
         self.optimizer.step()
 
@@ -280,9 +275,10 @@ class CocoTrainer:
             self.lr_scheduler.step()
         return loss_value
 
+
     def end_epoch(self):
-        pass
-        #self.lr_scheduler.step()
+        self.epoch_lr_scheduler.step()
+        return 0,0
 
 
 class ProcTrainer:
