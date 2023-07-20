@@ -31,6 +31,7 @@ logs_g5_mixed/
 logs_desktop_mixed/
 logs_rebelrig/
 logs_rebelrig_old/
+logs_h100/
 *.zip
 *.sqlite
 *.nsys-rep

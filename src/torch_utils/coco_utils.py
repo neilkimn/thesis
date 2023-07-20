@@ -215,7 +215,6 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         if self._transforms is not None:
             img, target = self._transforms(img, target)
         return img, target
-
 class Compose(object):
     def __init__(self, transforms):
         self.transforms = transforms
@@ -238,7 +237,7 @@ def get_coco(root, image_set, transforms, mode="instances"):
         # "train": ("val2017", os.path.join("annotations", anno_file_template.format(mode, "val")))
     }
 
-    t = [ConvertCocoPolysToMask(), T.ToTensor()]
+    t = [ConvertCocoPolysToMask()]
 
     if transforms is not None:
         t.append(transforms)

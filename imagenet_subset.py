@@ -3,12 +3,13 @@ from pathlib import Path
 import shutil
 
 DATA_PATH = Path(os.environ["DATA_PATH"])
+SUBSET_PATH = Path("/home/neni/datasets")
 
 def main():
     imagenet_path = DATA_PATH / "imagenet"
     imagenet_train_path = imagenet_path / "train"
     imagenet_val_path = imagenet_path / "val"
-    imagenet_subset_path = DATA_PATH / "imagenet_10pct"
+    imagenet_subset_path = SUBSET_PATH / "imagenet_10pct"
     imagenet_subset_train_path = imagenet_subset_path / "train"
     imagenet_subset_val_path = imagenet_subset_path / "val"
     os.makedirs(imagenet_subset_train_path, exist_ok=True)

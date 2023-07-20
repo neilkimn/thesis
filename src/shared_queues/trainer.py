@@ -4,17 +4,289 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.utils import data as D
 from torch.autograd import Variable
+import torch.nn as nn
 
 import os
+import sys
+import math
 import time
 from pathlib import Path
-
+import logging
 from shared_queues.dataset import DatasetFromSubset
-from detectron2.solver import build_lr_scheduler, build_optimizer
-from detectron2.utils.events import EventStorage
+#from detectron2.solver import build_lr_scheduler, build_optimizer
+#from detectron2.utils.events import EventStorage
+from timm import utils
+from timm.optim import create_optimizer_v2, optimizer_kwargs
+from timm.scheduler import create_scheduler_v2, scheduler_kwargs
+from contextlib import suppress
+
+class TimmTrainer:
+    def __init__(self, args, model, device, name):
+        self.args = args
+        self.model = model
+        self.device = device
+        self.name = name
+        self.on_device = False
+        self.log_name = self.name + f"_bs{args.batch_size}_{args.training_workers}tw_{args.validation_workers}vw_{args.prefetch_factor}pf"
+        self.model.train(True)
+        self.current_epoch = 0
+        self.update_idx = 0
+        self.train_running_corrects = 0
+        self.valid_running_corrects = 0
+
+        if self.args.seed:
+            torch.manual_seed(self.args.seed)
+
+        self.optimizer = create_optimizer_v2(
+            self.model,
+            **optimizer_kwargs(cfg=self.args),
+            **args.opt_kwargs
+        )
+
+        self.accum_steps = 1
+        
+        self.train_loss_fn = nn.CrossEntropyLoss()
+        self.train_loss_fn = self.train_loss_fn.to(device=device)
+        self.validate_loss_fn = nn.CrossEntropyLoss().to(device=device)
+        self.logger = logging.getLogger('train')
+
+    def init_log(self, pid):
+        self.log_name += f"_pid_{pid}"
+        log_path = self.args.log_dir + "/" + self.log_name + ".csv"
+        with open(log_path, "w") as f:
+            f.write("timestamp,epoch,train_acc,valid_acc,train_time,batch_time,valid_time,total_time,train_corr,valid_corr,throughput\n")
+            f.write(f"{int(time.time())},0,0.0,0.0,0.0,0.0,0.0,0.0,0,0,0\n")
+        gpu_path = self.args.log_dir + "/" + self.log_name + "_gpu_util.csv"
+        os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,nounits -f {gpu_path}")
+        return log_path, gpu_path
+
+    def set_lr_scheduler(self, updates_per_epoch):
+        self.lr_scheduler, self.num_epochs = create_scheduler_v2(
+            self.optimizer,
+            **scheduler_kwargs(self.args),
+            updates_per_epoch=updates_per_epoch,
+        )
+
+    def send_model(self, channels_last):
+        self.on_device = True
+        self.model.to(self.device)
+        if channels_last:
+            self.model.to(self.device, memory_format=torch.channels_last)
+
+    def start_epoch(self, epoch, loader_len):
+        self.second_order = hasattr(self.optimizer, 'is_second_order') and self.optimizer.is_second_order
+        self.has_no_sync = hasattr(self.model, "no_sync")
+        self.update_time_m = utils.AverageMeter()
+        self.data_time_m = utils.AverageMeter()
+        self.losses_m = utils.AverageMeter()
+
+        self.batch_time_m = utils.AverageMeter()
+        self.val_losses_m = utils.AverageMeter()
+        self.top1_m = utils.AverageMeter()
+        self.top5_m = utils.AverageMeter()
+
+        self.last_accum_steps = loader_len % self.accum_steps
+        self.updates_per_epoch = (loader_len + self.accum_steps - 1) // self.accum_steps
+        self.num_updates = epoch * self.updates_per_epoch
+        self.last_batch_idx = loader_len - 1
+        self.last_batch_idx_to_accum = loader_len - self.last_accum_steps
+
+        self.data_start_time = self.update_start_time = time.time()
+        self.optimizer.zero_grad()
+        self.update_sample_count = 0
+        self.current_epoch = epoch
+
+    def _forward(self, inputs, labels):
+        with suppress():
+            outputs = self.model(inputs)
+            loss = self.train_loss_fn(outputs, labels)
+
+        preds = torch.max(outputs, 1)[1]
+        self.train_running_corrects += torch.sum(preds == labels.data)
+
+        return loss
+    
+    def _backward(self, loss, need_update):
+        loss.backward()
+        if need_update:
+            self.optimizer.step()
+
+    def forward(self, index, inputs, labels):
+        last_batch = index == self.last_batch_idx
+        need_update = last_batch or (index + 1) % self.accum_steps == 0
+        self.update_idx = index // self.accum_steps
+        if index >= self.last_batch_idx_to_accum:
+            self.accum_steps = self.last_accum_steps
+        if self.args.channels_last:
+            inputs = inputs.contiguous(memory_format=torch.channels_last)
+        self.data_time_m.update(self.accum_steps * (time.time() - self.data_start_time))
+
+        if self.has_no_sync and not need_update:
+            with self.model.no_sync():
+                loss = self._forward(inputs, labels)
+                self._backward(loss, need_update)
+        else:
+            loss = self._forward(inputs, labels)
+            self._backward(loss, need_update)
+
+        self.losses_m.update(loss.item() * self.accum_steps, inputs.size(0))
+        self.update_sample_count += inputs.size(0)
+
+        if not need_update:
+            data_start_time = time.time()
+            return
+
+        self.num_updates += 1
+        self.optimizer.zero_grad()
+
+        time_now = time.time()
+        self.update_time_m.update(time.time() - self.update_start_time)
+        self.update_start_time = time_now
+
+        return loss
+    
+    def validate(self, inputs, labels):
+        self.model.eval()
+        with torch.no_grad():
+            if self.args.channels_last:
+                inputs = inputs.contiguous(memory_format=torch.channels_last)
+            output = self.model(inputs)
+            preds = torch.max(output, 1)[1]
+            self.valid_running_corrects += torch.sum(preds == labels.data)
+            if isinstance(output, (tuple, list)):
+                output = output[0]
+            loss = self.validate_loss_fn(output, labels)
+            acc1, acc5 = utils.accuracy(output, labels, topk=(1, 5))
+            reduced_loss = loss.data
+
+            if self.args.device.type == 'cuda':
+                torch.cuda.synchronize()
+            self.losses_m.update(reduced_loss.item(), inputs.size(0))
+            self.top1_m.update(acc1.item(), output.size(0))
+            self.top5_m.update(acc5.item(), output.size(0))
+        return self.losses_m.avg, self.top1_m.avg, self.valid_running_corrects
+
+    def end_epoch(self, args):
+        train_epoch_acc = float(self.train_running_corrects) / args.train_dataset_len * 100
+        train_running_corrects = self.train_running_corrects
+        self.train_running_corrects = 0
+        self.valid_running_corrects = 0
+
+        print(
+            f'Train: {self.current_epoch} [{self.update_idx}/{self.updates_per_epoch} '
+            f'({100. * self.update_idx / (self.updates_per_epoch - 1)}%)]  '
+            f'Loss: {self.losses_m.val} ({self.losses_m.avg})  '
+            f'Time: {self.update_time_m.val}s,'
+            #f'({self.update_time_m.avg:.3f}s, {self.update_sample_count / self.update_time_m.avg:>7.2f}/s)  '
+            #f'LR: {lr:.3e}  '
+            f'Data: {self.data_time_m.val} ({self.data_time_m.avg})'
+        )
+
+        print(
+            f'Validation:'
+            f'Loss: {self.losses_m.val} ({self.losses_m.avg})  '
+            f'Acc@1: {self.top1_m.val} ({self.top1_m.avg})  '
+            f'Acc@5: {self.top5_m.val} ({self.top5_m.avg})'
+        )
+        return train_epoch_acc, train_running_corrects
+
+import torchvision
+from torch_utils import utils as coco_trainer_utils
+
+class CocoTrainer:
+    def __init__(self, args, model, device):
+        self.args = args
+        self.device = device
+        self.model = model
+        self.name = args.model
+        self.on_device = False
+        self.log_name = self.name + f"_bs{args.batch_size}_{args.training_workers}tw_{args.validation_workers}vw_{args.prefetch_factor}pf"
+
+        self.param_groups = torchvision.ops._utils.split_normalization_params(self.model)
+        self.wd_groups = [args.norm_weight_decay, args.weight_decay]
+        self.parameters = [{"params": p, "weight_decay": w} for p, w in zip(self.param_groups, self.wd_groups) if p]
+
+        opt_name = args.opt.lower()
+        if opt_name.startswith("sgd"):
+            self.optimizer = torch.optim.SGD(
+                self.parameters,
+                lr=args.lr,
+                momentum=args.momentum,
+                weight_decay=args.weight_decay,
+                nesterov="nesterov" in opt_name,
+            )
+        elif opt_name == "adamw":
+            self.optimizer = torch.optim.AdamW(self.parameters, lr=args.lr, weight_decay=args.weight_decay)
+        else:
+            raise RuntimeError(f"Invalid optimizer {args.opt}. Only SGD and AdamW are supported.")
+        
+        lr_scheduler = args.lr_scheduler.lower()
+
+        if lr_scheduler == "multisteplr":
+            self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.args.lr_steps, gamma=self.args.lr_gamma)
+        elif lr_scheduler == "cosineannealinglr":
+            self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.args.epochs)
+        else:
+            raise RuntimeError(
+                f"Invalid lr scheduler '{self.args.lr_scheduler}'. Only MultiStepLR and CosineAnnealingLR are supported."
+            )
+
+    def send_model(self):
+        self.on_device = True
+        self.model.to(self.device)
+
+    def init_log(self, pid):
+        self.log_name += f"_pid_{pid}"
+        log_path = self.args.log_dir + "/" + self.log_name + ".csv"
+        with open(log_path, "w") as f:
+            f.write("timestamp,epoch,train_acc,valid_acc,train_time,batch_time,valid_time,total_time,train_corr,valid_corr,throughput\n")
+            f.write(f"{int(time.time())},0,0.0,0.0,0.0,0.0,0.0,0.0,0,0,0\n")
+        gpu_path = self.args.log_dir + "/" + self.log_name + "_gpu_util.csv"
+        os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,nounits -f {gpu_path}")
+        return log_path, gpu_path
+    
+    def start_epoch(self, epoch, data_loader_len):
+        print("Start epoch called")
+        self.model.train()
+        self.lr_scheduler = None
+        if epoch == 0:
+            warmup_factor = 1.0 / 1000
+            warmup_iters = min(1000, data_loader_len - 1)
+
+            self.lr_scheduler = torch.optim.lr_scheduler.LinearLR(
+                self.optimizer, start_factor=warmup_factor, total_iters=warmup_iters
+            )
+
+    def forward(self, inputs, targets):
+        with torch.cuda.amp.autocast(enabled=False):
+            loss_dict = self.model(inputs, targets)
+            losses = sum(loss for loss in loss_dict.values())
+        
+        loss_dict_reduced = utils.reduce_dict(loss_dict)
+        losses_reduced = sum(loss for loss in loss_dict_reduced.values())
+
+        loss_value = losses_reduced.item()
+
+        if not math.isfinite(loss_value):
+            print(f"Loss is {loss_value}, stopping training")
+            print(loss_dict_reduced)
+            sys.exit(1)
+
+        self.optimizer.zero_grad()
+        losses.backward()
+        self.optimizer.step()
+
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step()
+        return loss_value
+
+    def end_epoch(self):
+        pass
+        #self.lr_scheduler.step()
+
 
 class ProcTrainer:
-    def __init__(self, args, model, device, cfg):
+    def __init__(self, args, model, device):
         self.args = args
         self.device = device
         self.model = model
@@ -29,8 +301,9 @@ class ProcTrainer:
         self.train_running_corrects = 0
         self.model.train(True)
 
-        self.optimizer = build_optimizer(cfg, model)
-        self.scheduler = build_lr_scheduler(cfg, self.optimizer)
+        self.optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9)
+        self.scheduler = lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
+        self.criterion = torch.nn.CrossEntropyLoss()
 
         self.val_loss = 0.0
         self.val_correct = 0
@@ -50,19 +323,19 @@ class ProcTrainer:
         self.on_device = True
         self.model.to(self.device)
 
-    def forward(self, data):
-        with EventStorage() as storage:
-            loss_dict = self.model(data)
-            losses = sum(loss_dict.values())
-            assert torch.isfinite(losses).all(), loss_dict
+    def forward(self, inputs, labels):
 
-            self.optimizer.zero_grad()
-            losses.backward()
-            self.optimizer.step()
-            self.scheduler.step()
+        self.optimizer.zero_grad()
+        outputs = self.model.forward(Variable(inputs))
+        loss = self.criterion(outputs, Variable(labels))
+        preds = torch.max(outputs, 1)[1]
+        self.train_running_corrects += torch.sum(preds == labels.data)
+        loss.backward()
+        self.optimizer.step()
+        self.running_loss += loss.item()
 
-            return losses
-        
+        return loss
+    
     def end_epoch(self, args):
         train_epoch_acc = float(self.train_running_corrects) / args.train_dataset_len * 100
         train_running_corrects = self.train_running_corrects
@@ -90,6 +363,7 @@ class ProcTrainer:
         self.val_acc = 100. * self.val_correct / self.args.valid_dataset_len
 
         return self.val_loss, self.val_acc, self.val_correct
+        
     
 class RCNNProcTrainer:
     def __init__(self, args, model, device, name):

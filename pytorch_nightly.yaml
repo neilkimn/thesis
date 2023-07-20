@@ -1,0 +1,16 @@
+name: ptnightly
+channels:
+  - pytorch-nightly
+  - nvidia
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
+  - boto3
+  - pip:
+      - mlflow>=1.0
+      - tensorboardX
+      - psutil

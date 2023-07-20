@@ -1,4 +1,3 @@
-import ads3 as ads3
 import torch
 import torch.backends.cudnn as cudnn
 import torchvision
@@ -11,10 +10,6 @@ from torch.multiprocessing import Process, Queue, JoinableQueue
 from torch.utils import data as D
 from torch.autograd import Variable
 import nvtx
-from detectron2.modeling import build_model
-from detectron2.data import (
-    build_detection_train_loader,
-)
 
 from pathlib import Path
 import shutil
@@ -420,8 +415,8 @@ if __name__ == "__main__":
     IMAGE_WIDTH = args.img_size
     IMAGE_HEIGHT = args.img_size
 
-    train_dataset = get_coco("/home/kafka/datasets/coco_minitrain_25k", "train", None)
-    valid_dataset = get_coco("/home/kafka/datasets/coco_minitrain_25k", "val", None)
+    train_dataset = get_coco("/home/neni/datasets/coco_minitrain_25k", "train", None)
+    valid_dataset = get_coco("/home/neni/datasets/coco_minitrain_25k", "val", None)
     train_loader = create_train_loader(train_dataset, BATCH_SIZE, NUM_WORKERS)
     valid_loader = create_valid_loader(valid_dataset, BATCH_SIZE, NUM_WORKERS)
     print(f"Number of training samples: {len(train_dataset)}")
