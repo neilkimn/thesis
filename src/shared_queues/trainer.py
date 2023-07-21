@@ -263,7 +263,8 @@ class CocoTrainer:
 
         loss_value = losses_reduced.item()
         if not math.isfinite(loss_value):
-            print(f"Loss is {loss_value}")
+            pass
+            #print(f"Loss is {loss_value}")
             #print(loss_dict_reduced)
             #sys.exit(1)
         self.optimizer.zero_grad()

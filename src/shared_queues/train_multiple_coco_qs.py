@@ -1,27 +1,21 @@
 import torch
-import torch.backends.cudnn as cudnn
 import torchvision
-import torchvision.transforms as transforms
-import torchvision.models as models
-import torchvision.datasets as datasets
-
-import torch.multiprocessing as mp
-#import multiprocessing as mp
-from torch.multiprocessing import Process, Queue, JoinableQueue
+import multiprocessing as mp
+from multiprocessing import Process, JoinableQueue, Queue
+#import torch.multiprocessing as mp
+#from torch.multiprocessing import Process, JoinableQueue, Queue
 from torch.utils import data as D
-from torch.autograd import Variable
 import nvtx
 
 from pathlib import Path
 import shutil
-import argparse
 import random
 import time
 import os
+import contextlib
 
-from shared.dataset import CarDataset, DatasetFromSubset
-from shared_queues.trainer import RCNNProcTrainer, CocoTrainer
-from shared.util import Counter, get_transformations, write_debug_indices
+from shared_queues.trainer import CocoTrainer
+from shared.util import Counter
 
 import datetime
 import os
@@ -234,8 +228,11 @@ class Logger(object):
                 f.write(f"{int(time.time())},{epoch},{train_acc},{self.val_acc},{self.train_time},{self.batch_time},{self.val_time},{epoch_time},{train_running_corrects},{self.val_correct},{self.items_processed/(self.train_time+self.batch_time)}\n")
                 os.system(f"nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader >> {self.gpu_path}")
 
-def producer(loader, valid_loader, qs, device, args, producer_alive):
+def producer(loader, valid_loader, qs, qs_data, device, args, producer_alive):
     pid = os.getpid()
+    p_stream = torch.cuda.Stream(device=device)
+    ctx = torch.cuda.stream(p_stream) if args.gpu_prefetch else contextlib.suppress()
+    noop = torch.nn.Identity()
     if args.seed:
         torch.manual_seed(args.seed)
     if args.debug_data_dir:
@@ -251,19 +248,24 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
         if not args.evaluate_only:
             for idx, (inputs, labels) in enumerate(loader):
                 indices = None
-                if args.gpu_prefetch:
-                    nvtx.push_range("producer memcpy")
-                    #print("INPUTS", len(inputs), inputs)
-                    inputs = list(image.to(device) for image in inputs)
-                    #inputs = inputs[0].to(device)
-                    #print("LABELS", len(labels), inputs)
-                    labels = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in labels]
-                    nvtx.pop_range()
+                
+                nvtx.push_range("producer memcpy")
+                with ctx:
+                    for inp in inputs:
+                        if args.gpu_prefetch:
+                            nvtx.push_range("producer memcpy")
+                            inp = inp.to(device)
+                            inp = noop(inp)
+                            nvtx.pop_range()
+                        for q in qs_data:
+                            q.queue.put(inp)
+                    if args.gpu_prefetch:
+                        nvtx.push_range("producer memcpy")
+                        labels = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in labels]
+                        nvtx.pop_range()
 
                 for q in qs:
-                    q.queue.put((idx, inputs, labels, epoch, "train", indices))
-                    
-
+                    q.queue.put((idx, labels, epoch, "train", indices))
 
         # end of training for epoch, switch to eval
         if epoch > 2:
@@ -277,14 +279,17 @@ def producer(loader, valid_loader, qs, device, args, producer_alive):
                     q.queue.put((idx, inputs, labels, epoch, "valid", indices))
     
         for q in qs:
-            q.queue.put((0, None, None, epoch, "end", None))
+            q.queue.put((0, None, epoch, "end", None))
     producer_alive.wait()
 
-def worker(q, model, args, producer_alive, finished_workers):
-    #affinity_mask = {1}
-    #os.sched_setaffinity(0, affinity_mask)
-    #torch.set_num_threads(1)
+def worker(q, q_data, model, args, producer_alive, finished_workers):
     pid = os.getpid()
+    affinity_mask = {0}
+    os.sched_setaffinity(0, affinity_mask)
+    torch.set_num_threads(1)
+    w_stream = torch.cuda.Stream(device=args.device)
+    ctx = torch.cuda.stream(w_stream) if args.gpu_prefetch else contextlib.suppress()
+
     log_path, gpu_path = None, None
     if model.on_device == False:
         print(f"{pid}\tTraining model: {model.name}")
@@ -300,32 +305,42 @@ def worker(q, model, args, producer_alive, finished_workers):
     epochs_processed = 0
     epoch_start_time = time.time()
 
-    train_time, val_time, batch_time, items_processed = 0,0,0,0
+    train_time, val_time, batch_time, label_time, data_time, items_processed = 0,0,0,0,0,0
+
     while True:
         pid = os.getpid()
 
         start = time.time()
+
         nvtx.push_range("worker get batch")
-        idx, inputs, labels, epoch, batch_type, indices = q.queue.get()
+        with ctx:
+            idx, labels, epoch, batch_type, indices = q.queue.get()
         nvtx.pop_range()
+        batch_time += time.time() - start
         
+        start = time.time()
+        nvtx.push_range("worker get data")
+        if batch_type != "end":
+            with ctx:
+                inputs = [q_data.queue.get() for _ in range(args.batch_size)]
+        nvtx.pop_range()
+        data_time += time.time() - start
+
+        start = time.time()
         if batch_type in ("train", "valid"):
+            nvtx.push_range("worker memcpy")
             if not args.gpu_prefetch:
-                nvtx.push_range("worker memcpy")
-                inputs = list(image.to(args.device) for image in inputs)
-                labels = [{k: v.to(args.device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in labels]
-                nvtx.pop_range()
-
-        if args.record_first_batch_time:
-            batch_time += time.time() - start
-        else:
-            if idx > 0:
-                batch_time += time.time() - start
-
+                with ctx:
+                    inputs = list(image.to(args.device) for image in inputs)
+                    #inputs = [q_data.queue.get().to(args.device) for _ in range(args.batch_size)]
+                    labels = [{k: v.to(args.device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in labels]
+            nvtx.pop_range()
+        label_time += time.time() - start
         start = time.time()
         if batch_type == "train":
             nvtx.push_range("model forward")
-            loss = model.forward(inputs, labels)
+            with ctx:
+                loss = model.forward(inputs, labels)
             nvtx.pop_range()
             items_processed += len(inputs)
             train_time += time.time() - start
@@ -336,12 +351,12 @@ def worker(q, model, args, producer_alive, finished_workers):
             val_loss, val_acc, val_correct = model.validate(inputs, labels)
             val_time += time.time() - start
             logger.log_validation(val_loss, val_correct, val_acc, val_time)
-
+        
         elif batch_type == "end":
             train_epoch_acc, train_running_corrects = model.end_epoch()
             epoch_end_time = time.time() - epoch_start_time
             epoch_time = train_time + val_time + batch_time
-            print(f"Train + val + batch time: {train_time}, {val_time}, {batch_time}, total: {train_time+val_time+batch_time}")
+            print(f"Train + val + batch time + label time + data time: {train_time}, {val_time}, {batch_time}, {label_time}, {data_time} total: {train_time+val_time+batch_time+label_time+data_time}")
             logger.log_write_epoch_end(epoch, epoch_end_time, train_epoch_acc, train_running_corrects)
             train_time, val_time, batch_time,items_processed = 0,0,0,0
             model.start_epoch(epoch+1, args.train_loader_len)
@@ -365,7 +380,7 @@ def main(args):
         random.seed(args.seed)
         torch.manual_seed(args.seed)
 
-    mp.set_sharing_strategy('file_system')
+    #mp.set_sharing_strategy('file_system')
     mp.set_start_method("spawn", force=True)
     manager = mp.Manager()
 
@@ -456,10 +471,14 @@ def main(args):
         train_models.append(trainer)
 
     queues = []
+    queues_data = []
     for idx in range(args.num_processes):
-        q = JoinableQueue(maxsize=20)
+        q = Queue(maxsize=10)
+        q_data = Queue(maxsize=20)
         queue = MyQueue(q, idx)
+        queue_data = MyQueue(q_data, idx)
         queues.append(queue)
+        queues_data.append(queue_data)
     
     producer_alive = mp.Event()
     producers = []
@@ -477,7 +496,7 @@ def main(args):
             producers.append(p)
             p.start()
     else:
-        p = Process(target=producer, args = ((data_loader, data_loader_test, queues, device, args, producer_alive)))
+        p = Process(target=producer, args = ((data_loader, data_loader_test, queues, queues_data, device, args, producer_alive)))
         producers.append(p)
         p.start()
 
@@ -486,7 +505,7 @@ def main(args):
     workers = []
     start_time = time.time()
     for i in range(args.num_processes):
-        p = Process(target=worker, daemon=True, args=((queues[i], train_models[i], args, producer_alive, finished_workers)))
+        p = Process(target=worker, daemon=True, args=((queues[i], queues_data[i], train_models[i], args, producer_alive, finished_workers)))
         workers.append(p)
         p.start()
 
