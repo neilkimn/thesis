@@ -2,7 +2,9 @@ from collections import defaultdict
 
 import torch
 import torch_utils.transforms as reference_transforms
+from torchvision.models.detection.transform import GeneralizedRCNNTransform
 
+coco_transform = GeneralizedRCNNTransform(min_size=600, max_size=1000, image_mean=[0.485, 0.456, 0.406], image_std=[0.229, 0.224, 0.225], fixed_size=(600, 800))
 
 def get_modules(use_v2):
     # We need a protected import to avoid the V2 warning in case just V1 is used
@@ -80,6 +82,7 @@ class DetectionPresetTrain:
                 T.ConvertBoundingBoxFormat(datapoints.BoundingBoxFormat.XYXY),
                 T.SanitizeBoundingBox(),
             ]
+        transforms += [coco_transform.resize]
 
         self.transforms = T.Compose(transforms)
 

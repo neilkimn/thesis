@@ -255,71 +255,75 @@ def producer(loader, valid_loader, qs, qs_input, qs_labels, device, args, produc
 
             for idx, (inputs_raw, labels_raw) in enumerate(loader):
                 indices = None
-                if args.gpu_prefetch:
-                    nvtx.push_range("producer memcpy")
 
-                    if idx < 20:
-                        # prepopulate queues with tensor pointers
+                nvtx.push_range("producer memcpy")
+
+                if idx < 20:
+                    # prepopulate queues with tensor pointers
+                    if args.gpu_prefetch:
                         inputs = list(image.to(device) for image in inputs_raw)
+                    else:
+                        inputs = inputs_raw
 
-                        for input in inputs:
-                            for q in qs_input:
-                                q.queue.put(input)
-                        
-                        input_slots.extend(inputs)
-                        
+                    for input in inputs:
+                        for q in qs_input:
+                            q.queue.put(input)
+
+                    input_slots.extend(inputs)
+                    if args.gpu_prefetch:
                         labels = [v.to(device) if isinstance(v, torch.Tensor) else v for t in labels_raw for k, v in t.items()]
+                    else:
+                        labels = [v for t in labels_raw for k, v in t.items()]
 
-                        for label in labels:
-                            for q in qs_labels:
-                                q.queue.put(label)
+                    for label in labels:
+                        for q in qs_labels:
+                            q.queue.put(label)
 
-                        labels_slots.extend(labels)
-                      
-                    #print("INPUTS", len(inputs), inputs)
-                    # inputs = list(image.to(device) for image in inputs)
-                    #inputs = inputs[0].to(device)
-                    #print("LABELS", len(labels), inputs)
-                    # labels = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in labels]
-                    nvtx.pop_range()
+                    labels_slots.extend(labels)
+
+                nvtx.pop_range()
 
                 for q in qs:
-                    
                     offset = idx % 20
-
                      # TODO: these try excepts *have* to go. The issue is that not all images are the same size. We should
                      # ensure that everything is the same size
                      # For images, that would mean resizing everything to some standard
-                    try:
-                        input_slots[offset*2][:] = inputs[0]
-                        input_slots[offset*2+1][:] = inputs[1]
-                    except:
-                        pass
+                    if args.gpu_prefetch:
+                        try:
+                            input_slots[offset*2][:] = inputs[0]
+                            input_slots[offset*2+1][:] = inputs[1]
+                        except Exception as e:
+                            pass
 
-                    labels = [v for t in labels_raw for k, v in t.items()]
+                        #labels = [v for t in labels_raw for k, v in t.items()]
 
-                    # TODO: these try excepts *have* to go. The issue is that not all labels are the same size. We should
-                    # ensure that everything is the same size
-                    # Bounding boxes are a serious issue, because as far as I know there can be multiple boxes per image.
-                    # Maybe check the literature what they do, or as interim we can limit the amount of boxes or something.
-                    try:
-                        labels_slots[offset*12][:] = labels[0]
-                        labels_slots[offset*12+1][:] = labels[1]
-                        labels_slots[offset*12+2][:] = labels[2]
-                        labels_slots[offset*12+3][:] = labels[3]
-                        labels_slots[offset*12+4][:] = labels[4]
-                        labels_slots[offset*12+5][:] = labels[5]
-                        labels_slots[offset*12+6][:] = labels[6]
-                        labels_slots[offset*12+7][:] = labels[7]
-                        labels_slots[offset*12+8][:] = labels[8]
-                        labels_slots[offset*12+9][:] = labels[9]
-                        labels_slots[offset*12+10][:] = labels[10]
-                        labels_slots[offset*12+11][:] = labels[11]
-                    except:
-                        pass
+                        # TODO: these try excepts *have* to go. The issue is that not all labels are the same size. We should
+                        # ensure that everything is the same size
+                        # Bounding boxes are a serious issue, because as far as I know there can be multiple boxes per image.
+                        # Maybe check the literature what they do, or as interim we can limit the amount of boxes or something.
+                        """ for i in range(12):
+                            try:
+                                labels_slots[offset*12+i][:] = labels[i]
+                            except Exception as e:
+                                pass
+                                print(f"Index: {i}", e) """
+                        """ try:
+                            labels_slots[offset*12][:] = labels[0]
+                            labels_slots[offset*12+1][:] = labels[1]
+                            labels_slots[offset*12+2][:] = labels[2]
+                            labels_slots[offset*12+3][:] = labels[3]
+                            labels_slots[offset*12+4][:] = labels[4]
+                            labels_slots[offset*12+5][:] = labels[5]
+                            labels_slots[offset*12+6][:] = labels[6]
+                            labels_slots[offset*12+7][:] = labels[7]
+                            labels_slots[offset*12+8][:] = labels[8]
+                            labels_slots[offset*12+9][:] = labels[9]
+                            labels_slots[offset*12+10][:] = labels[10]
+                            labels_slots[offset*12+11][:] = labels[11]
+                        except Exception as e:
+                            pass """
 
                     q.queue.put((idx, epoch, "train", indices))
-                    
 
         # TODO: fix
         # # end of training for epoch, switch to eval
@@ -338,7 +342,7 @@ def producer(loader, valid_loader, qs, qs_input, qs_labels, device, args, produc
     producer_alive.wait()
 
 def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
-    #affinity_mask = {1}
+    #affinity_mask = {i}
     #os.sched_setaffinity(0, affinity_mask)
     #torch.set_num_threads(1)
     pid = os.getpid()
@@ -493,7 +497,7 @@ def main(args):
         train_collate_fn = copypaste_collate_fn
 
     data_loader = torch.utils.data.DataLoader(
-        dataset, batch_sampler=train_batch_sampler, num_workers=args.workers, collate_fn=train_collate_fn, pin_memory=True
+        dataset, batch_sampler=train_batch_sampler, num_workers=args.workers*args.num_processes, collate_fn=train_collate_fn
     )
 
     data_loader_test = torch.utils.data.DataLoader(
@@ -554,19 +558,17 @@ def main(args):
     producers = []
 
     if args.producer_per_worker:
-        pass
-        # NOT UPDATED YET
-        # for i in range(args.num_processes):
-        #     data_loader = torch.utils.data.DataLoader(
-        #         dataset, batch_sampler=train_batch_sampler, num_workers=args.workers, collate_fn=train_collate_fn, pin_memory=True
-        #     )
+        for i in range(args.num_processes):
+            data_loader = torch.utils.data.DataLoader(
+                dataset, batch_sampler=train_batch_sampler, num_workers=args.workers, collate_fn=train_collate_fn
+            )
 
-        #     data_loader_test = torch.utils.data.DataLoader(
-        #         dataset_test, batch_size=1, sampler=test_sampler, num_workers=args.workers, collate_fn=utils.collate_fn
-        #     )
-        #     p = Process(target=producer, args = ((data_loader, data_loader_test, [queues[i]], device, args, producer_alive)))
-        #     producers.append(p)
-        #     p.start()
+            data_loader_test = torch.utils.data.DataLoader(
+                dataset_test, batch_size=1, sampler=test_sampler, num_workers=args.workers, collate_fn=utils.collate_fn
+            )
+            p = Process(target=producer, args = ((data_loader, data_loader_test, [queues[i]], [queues_input[i]], [queues_labels[i]], device, args, producer_alive)))
+            producers.append(p)
+            p.start()
     else:
         p = Process(target=producer, args = ((data_loader, data_loader_test, queues, queues_input, queues_labels, device, args, producer_alive)))
         producers.append(p)
@@ -577,7 +579,7 @@ def main(args):
     workers = []
     start_time = time.time()
     for i in range(args.num_processes):
-        p = Process(target=worker, daemon=True, args=((queues[i], queues_input[i], queues_labels[i], train_models[i], args, producer_alive, finished_workers)))
+        p = Process(target=worker, daemon=True, args=((queues[i], queues_input[i], queues_labels[i], train_models[i], args, producer_alive, finished_workers, i)))
         workers.append(p)
         p.start()
 
