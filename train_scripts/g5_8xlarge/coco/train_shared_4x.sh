@@ -5,9 +5,9 @@ DEBUG_DIR="/home/ubuntu/repos/thesis/debug_data/"
 CUDA_VISIBLE_DEVICES=0
 
 MODEL=$1
-BATCH_SIZE=2
+BATCH_SIZE=4
 DATASET="coco"
-MODEL_NAME="${MODEL}_bs_${BATCH_SIZE}"
+MODEL_NAME="${MODEL}_bs_${BATCH_SIZE}_cpu_${CPU}"
 EPOCHS=2
 
 sleep 1
@@ -17,14 +17,14 @@ fi
 
 sudo sh -c "/bin/echo 3 > /proc/sys/vm/drop_caches"
 
-/opt/conda/envs/thesis/bin/python /home/ubuntu/repos/thesis/src/shared_queues/train_multiple_coco.py \
-    --dataset coco --arch $MODEL $MODEL $MODEL --epochs $EPOCHS --lr-steps 16 22 --aspect-ratio-group-factor 3 \
+/opt/conda/envs/thesis/bin/python /home/ubuntu/repos/thesis/src/shared_queues/train_multiple_coco_tensorshare.py \
+    --dataset coco --arch $MODEL $MODEL $MODEL $MODEL --epochs $EPOCHS --lr-steps 16 22 --aspect-ratio-group-factor 3 \
     --weights-backbone ResNet50_Weights.IMAGENET1K_V1 --data-path /raid/datasets/$DATASET \
-    --num-processes 3 --producer-per-worker --record_first_batch_time --batch-size $BATCH_SIZE \
+    --num-processes 4 --gpu-prefetch --record_first_batch_time --batch-size $BATCH_SIZE \
     --log_dir "${LOG_DIR}/${DATASET}/${MODEL_NAME}" &
 training_main_proc=$!
 
-mpstat 1 -P 0-31 > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
+mpstat 1 -P 0-$CPU > ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_cpu.out &
 trace_cpu_pid=$!
 
 nvidia-smi pmon -i 0 -s um -o DT -f ${LOG_DIR}/${DATASET}/${MODEL_NAME}/pid_${training_main_proc}_gpu.out &

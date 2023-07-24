@@ -757,7 +757,7 @@ def main(args):
     data_loader = torch.utils.data.DataLoader(
         dataset,
         batch_sampler=train_batch_sampler,
-        num_workers=args.workers * args.num_processes,
+        num_workers=args.workers,
         collate_fn=train_collate_fn,
     )
 

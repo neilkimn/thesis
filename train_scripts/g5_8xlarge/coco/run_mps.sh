@@ -14,7 +14,7 @@ sudo nvidia-smi -i 0 -c EXCLUSIVE_PROCESS
 sudo nvidia-cuda-mps-control -d
 
 # run some stuff ...
-bash $1 $2
+bash $1 $2 $3
 
 # shut down MPS control daemon
 sudo echo quit | sudo nvidia-cuda-mps-control
