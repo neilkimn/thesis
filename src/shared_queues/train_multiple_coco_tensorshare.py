@@ -438,52 +438,52 @@ def producer(
 
                 nvtx.pop_range()
 
-                # if args.gpu_prefetch:
-                #     try:
-                #         input_slots[offset * 2][:] = inputs[0]
-                #         input_slots[offset * 2 + 1][:] = inputs[1]
-                #     except Exception as e:
-                #         pass
+                if args.gpu_prefetch:
+                    try:
+                        input_slots[offset * 2][:] = inputs[0]
+                        input_slots[offset * 2 + 1][:] = inputs[1]
+                    except Exception as e:
+                        pass
 
                 for q in qs:
                     offset = idx % 20
                     # TODO: these try excepts *have* to go. The issue is that not all images are the same size. We should
                     # ensure that everything is the same size
                     # For images, that would mean resizing everything to some standard
-                    if args.gpu_prefetch:
+                    # if args.gpu_prefetch:
+                    #     try:
+                    #         input_slots[offset * 2][:] = inputs_raw[0]
+                    #         input_slots[offset * 2 + 1][:] = inputs_raw[1]
+                    #     except Exception as e:
+                    #         pass
+
+                    # labels = [v for t in labels_raw for k, v in t.items()]
+
+                    # TODO: these try excepts *have* to go. The issue is that not all labels are the same size. We should
+                    # ensure that everything is the same size
+                    # Bounding boxes are a serious issue, because as far as I know there can be multiple boxes per image.
+                    # Maybe check the literature what they do, or as interim we can limit the amount of boxes or something.
+                    """ for i in range(12):
                         try:
-                            input_slots[offset * 2][:] = inputs_raw[0]
-                            input_slots[offset * 2 + 1][:] = inputs_raw[1]
+                            labels_slots[offset*12+i][:] = labels[i]
                         except Exception as e:
                             pass
-
-                        # labels = [v for t in labels_raw for k, v in t.items()]
-
-                        # TODO: these try excepts *have* to go. The issue is that not all labels are the same size. We should
-                        # ensure that everything is the same size
-                        # Bounding boxes are a serious issue, because as far as I know there can be multiple boxes per image.
-                        # Maybe check the literature what they do, or as interim we can limit the amount of boxes or something.
-                        """ for i in range(12):
-                            try:
-                                labels_slots[offset*12+i][:] = labels[i]
-                            except Exception as e:
-                                pass
-                                print(f"Index: {i}", e) """
-                        """ try:
-                            labels_slots[offset*12][:] = labels[0]
-                            labels_slots[offset*12+1][:] = labels[1]
-                            labels_slots[offset*12+2][:] = labels[2]
-                            labels_slots[offset*12+3][:] = labels[3]
-                            labels_slots[offset*12+4][:] = labels[4]
-                            labels_slots[offset*12+5][:] = labels[5]
-                            labels_slots[offset*12+6][:] = labels[6]
-                            labels_slots[offset*12+7][:] = labels[7]
-                            labels_slots[offset*12+8][:] = labels[8]
-                            labels_slots[offset*12+9][:] = labels[9]
-                            labels_slots[offset*12+10][:] = labels[10]
-                            labels_slots[offset*12+11][:] = labels[11]
-                        except Exception as e:
-                            pass """
+                            print(f"Index: {i}", e) """
+                    """ try:
+                        labels_slots[offset*12][:] = labels[0]
+                        labels_slots[offset*12+1][:] = labels[1]
+                        labels_slots[offset*12+2][:] = labels[2]
+                        labels_slots[offset*12+3][:] = labels[3]
+                        labels_slots[offset*12+4][:] = labels[4]
+                        labels_slots[offset*12+5][:] = labels[5]
+                        labels_slots[offset*12+6][:] = labels[6]
+                        labels_slots[offset*12+7][:] = labels[7]
+                        labels_slots[offset*12+8][:] = labels[8]
+                        labels_slots[offset*12+9][:] = labels[9]
+                        labels_slots[offset*12+10][:] = labels[10]
+                        labels_slots[offset*12+11][:] = labels[11]
+                    except Exception as e:
+                        pass """
                     # TODO: attempt to slow it down, doesn't work
                     # inputs_raw[0].to(device)
                     # inputs_raw[1].to(device)
