@@ -443,12 +443,11 @@ def producer(
 
                 nvtx.pop_range()
 
-                if (not args.only_first) or idx == 0:
-                    try:
-                        input_slots[offset * 2][:] = inputs[0]
-                        input_slots[offset * 2 + 1][:] = inputs[1]
-                    except Exception as e:
-                        pass
+                try:
+                    input_slots[offset * 2][:] = inputs[0]
+                    input_slots[offset * 2 + 1][:] = inputs[1]
+                except Exception as e:
+                    pass
 
                 for q in qs:
                     offset = idx % 20
@@ -511,6 +510,13 @@ def producer(
     producer_alive.wait()
 
 
+def dumb_sleep(t):
+    t += time.time()
+
+    while time.time() < t:
+        pass
+
+
 def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
     # affinity_mask = {i}
     # os.sched_setaffinity(0, affinity_mask)
@@ -536,6 +542,8 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
     input_slots = [q_input.queue.get() for _ in range(40)]
     labels_slots = [q_labels.queue.get() for _ in range(240)]
 
+    first_idx, first_inputs, first_labels = True, [], []
+
     while True:
         pid = os.getpid()
 
@@ -545,8 +553,8 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
         idx, epoch, batch_type, indices = q.queue.get()
         queue_time += time.time() - start
 
+        offset = idx % 20
         if (not args.only_first) or idx == 0:
-            offset = idx % 20
             inputs = input_slots[offset * 2 : offset * 2 + 2]
 
             labels = [
@@ -568,6 +576,30 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
                 },
             ]
 
+            fak_inputs, fak_labels, fake_inputs, fake_labels = 0, 0, 0, 0
+        else:
+            fake_inputs = input_slots[offset * 2 : offset * 2 + 2]
+            fak_inputs = len(fake_inputs)
+            fake_labels = [
+                {
+                    "boxes": labels_slots[offset * 12],
+                    "labels": labels_slots[offset * 12 + 1],
+                    "masks": labels_slots[offset * 12 + 2],
+                    "image_id": labels_slots[offset * 12 + 3],
+                    "area": labels_slots[offset * 12 + 4],
+                    "iscrowd": labels_slots[offset * 12 + 5],
+                },
+                {
+                    "boxes": labels_slots[offset * 12 + 6],
+                    "labels": labels_slots[offset * 12 + 7],
+                    "masks": labels_slots[offset * 12 + 8],
+                    "image_id": labels_slots[offset * 12 + 9],
+                    "area": labels_slots[offset * 12 + 10],
+                    "iscrowd": labels_slots[offset * 12 + 11],
+                },
+            ]
+            fak_labels = len(fake_labels)
+
         nvtx.pop_range()
 
         if batch_type in ("train", "valid"):
@@ -583,12 +615,36 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
                         for t in labels
                     ]
                     nvtx.pop_range()
+                else:
+                    nvtx.push_range("worker memcpy")
+                    fake_inputs = list(image for image in fake_inputs)
+                    fake_labels = [
+                        {
+                            k: v if isinstance(v, torch.Tensor) else v
+                            for k, v in t.items()
+                        }
+                        for t in fake_labels
+                    ]
+                    fake_inputs = len(fake_inputs)
+                    fake_labels = len(fake_labels)
+                    nvtx.pop_range()
 
+                    # items_processed += (
+                    #     fak_labels + fak_inputs + fake_inputs + fake_labels
+                    # )
+
+        # dumb_sleep(0.2)
+        # time.sleep(0.2)
         batch_time += time.time() - start
 
         start = time.time()
         if batch_type == "train":
             nvtx.push_range("model forward")
+            # if first_idx:
+            #     first_idx = False
+            #     first_inputs = inputs
+            #     first_labels = labels
+            # loss = model.forward(first_inputs, first_labels)
             loss = model.forward(inputs, labels)
             nvtx.pop_range()
             items_processed += len(inputs)
