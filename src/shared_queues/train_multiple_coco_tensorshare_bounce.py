@@ -379,7 +379,15 @@ class Logger(object):
 
 
 def producer(
-    loader, valid_loader, qs, qs_input, qs_labels, device, args, producer_alive
+    loader,
+    valid_loader,
+    qs,
+    qs_input,
+    qs_labels,
+    qs_bounce,
+    device,
+    args,
+    producer_alive,
 ):
     pid = os.getpid()
     if args.seed:
@@ -452,8 +460,8 @@ def producer(
                     # For images, that would mean resizing everything to some standard
                     if args.gpu_prefetch:
                         try:
-                            input_slots[offset * 2][:] = inputs_raw[0]
-                            input_slots[offset * 2 + 1][:] = inputs_raw[1]
+                            input_slots[offset * 2][:] = inputs[0]
+                            input_slots[offset * 2 + 1][:] = inputs[1]
                         except Exception as e:
                             pass
 
@@ -484,10 +492,13 @@ def producer(
                             labels_slots[offset*12+11][:] = labels[11]
                         except Exception as e:
                             pass """
-                    # TODO: attempt to slow it down, doesn't work
-                    # inputs_raw[0].to(device)
-                    # inputs_raw[1].to(device)
+
                     q.queue.put((idx, epoch, "train", indices))
+
+                for q in qs_bounce:
+                    while not q.queue.empty():
+                        test = q.queue.get()
+                    # test_b = q.queue.get()
 
         # TODO: fix
         # # end of training for epoch, switch to eval
@@ -506,7 +517,9 @@ def producer(
     producer_alive.wait()
 
 
-def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
+def worker(
+    q, q_input, q_labels, q_bounce, model, args, producer_alive, finished_workers
+):
     # affinity_mask = {i}
     # os.sched_setaffinity(0, affinity_mask)
     # torch.set_num_threads(1)
@@ -567,6 +580,10 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
             if not args.gpu_prefetch:
                 nvtx.push_range("worker memcpy")
                 inputs = list(image.to(args.device) for image in inputs)
+
+                for input in inputs:
+                    q_bounce.queue.put(input)
+
                 labels = [
                     {
                         k: v.to(args.device) if isinstance(v, torch.Tensor) else v
@@ -750,16 +767,20 @@ def main(args):
     queues = []
     queues_input = []
     queues_labels = []
+    queues_bounce = []
     for idx in range(args.num_processes):
         q = JoinableQueue(maxsize=20)
         q_input = JoinableQueue(maxsize=40)  # batch size 2, so 2*20
         q_labels = JoinableQueue(maxsize=240)  # 6 dict elements per, so 20*40
+        q_bounce = JoinableQueue(maxsize=40)
         queue = MyQueue(q, idx)
         queue_input = MyQueue(q_input, idx)
         queue_labels = MyQueue(q_labels, idx)
+        queue_bounce = MyQueue(q_bounce, idx)
         queues.append(queue)
         queues_input.append(queue_input)
         queues_labels.append(queue_labels)
+        queues_bounce.append(queue_bounce)
 
     producer_alive = mp.Event()
     producers = []
@@ -789,6 +810,7 @@ def main(args):
                         [queues[i]],
                         [queues_input[i]],
                         [queues_labels[i]],
+                        [queues_bounce[i]],
                         device,
                         args,
                         producer_alive,
@@ -807,6 +829,7 @@ def main(args):
                     queues,
                     queues_input,
                     queues_labels,
+                    queues_bounce,
                     device,
                     args,
                     producer_alive,
@@ -829,6 +852,7 @@ def main(args):
                     queues[i],
                     queues_input[i],
                     queues_labels[i],
+                    queues_bounce[i],
                     train_models[i],
                     args,
                     producer_alive,

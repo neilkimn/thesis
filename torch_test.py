@@ -2,7 +2,6 @@ import torch
 import time
 
 
-
 # device = torch.device("cuda")
 
 # tensor_a = torch.rand((2, 2)).to(device)
@@ -21,21 +20,29 @@ import time
 # print(tensor_a.data_ptr(), tensor_a)
 import torch.multiprocessing as mp
 
+
 def reader(q):
-
-
-    tensor = q.get()
-
-    while True:
-        print(tensor, tensor.data_ptr())
-        time.sleep(0.05)
-
-def writer(q):
 
     device = torch.device("cuda")
     tensor = torch.tensor((0,)).to(device)
 
     q.put(tensor)
+
+    # tensor = q.get()
+
+    while True:
+        print(tensor, tensor.data_ptr())
+        time.sleep(0.05)
+
+
+def writer(q):
+
+    # device = torch.device("cuda")
+    # tensor = torch.tensor((0,)).to(device)
+
+    # q.put(tensor)
+
+    tensor = q.get()
 
     i = 0
     while True:
@@ -46,7 +53,7 @@ def writer(q):
         time.sleep(0.1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     num_processes = 2
     processes = []
 

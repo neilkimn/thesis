@@ -419,8 +419,7 @@ def producer(
                         for q in qs_input:
                             q.queue.put(input)
 
-                    # input_slots.extend(inputs)
-
+                    input_slots.extend(inputs)
                     if args.gpu_prefetch:
                         labels = [
                             v.to(device) if isinstance(v, torch.Tensor) else v
@@ -434,16 +433,9 @@ def producer(
                         for q in qs_labels:
                             q.queue.put(label)
 
-                    # labels_slots.extend(labels)
+                    labels_slots.extend(labels)
 
                 nvtx.pop_range()
-
-                # if args.gpu_prefetch:
-                #     try:
-                #         input_slots[offset * 2][:] = inputs[0]
-                #         input_slots[offset * 2 + 1][:] = inputs[1]
-                #     except Exception as e:
-                #         pass
 
                 for q in qs:
                     offset = idx % 20
@@ -452,8 +444,8 @@ def producer(
                     # For images, that would mean resizing everything to some standard
                     if args.gpu_prefetch:
                         try:
-                            input_slots[offset * 2][:] = inputs_raw[0]
-                            input_slots[offset * 2 + 1][:] = inputs_raw[1]
+                            input_slots[offset * 2][:] = inputs[0]
+                            input_slots[offset * 2 + 1][:] = inputs[1]
                         except Exception as e:
                             pass
 
@@ -484,9 +476,7 @@ def producer(
                             labels_slots[offset*12+11][:] = labels[11]
                         except Exception as e:
                             pass """
-                    # TODO: attempt to slow it down, doesn't work
-                    # inputs_raw[0].to(device)
-                    # inputs_raw[1].to(device)
+
                     q.queue.put((idx, epoch, "train", indices))
 
         # TODO: fix
@@ -531,13 +521,15 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
     input_slots = [q_input.queue.get() for _ in range(40)]
     labels_slots = [q_labels.queue.get() for _ in range(240)]
 
+    idx, epoch, batch_type = 0, 1, "train"
     while True:
         pid = os.getpid()
 
         start = time.time()
         nvtx.push_range("worker get batch")
 
-        idx, epoch, batch_type, indices = q.queue.get()
+        # idx, epoch, batch_type, indices = q.queue.get()
+
         queue_time += time.time() - start
         offset = idx % 20
         inputs = input_slots[offset * 2 : offset * 2 + 2]
@@ -563,18 +555,18 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
 
         nvtx.pop_range()
 
-        if batch_type in ("train", "valid"):
-            if not args.gpu_prefetch:
-                nvtx.push_range("worker memcpy")
-                inputs = list(image.to(args.device) for image in inputs)
-                labels = [
-                    {
-                        k: v.to(args.device) if isinstance(v, torch.Tensor) else v
-                        for k, v in t.items()
-                    }
-                    for t in labels
-                ]
-                nvtx.pop_range()
+        # if batch_type in ("train", "valid"):
+        #     if not args.gpu_prefetch:
+        #         nvtx.push_range("worker memcpy")
+        #         inputs = list(image.to(args.device) for image in inputs)
+        #         labels = [
+        #             {
+        #                 k: v.to(args.device) if isinstance(v, torch.Tensor) else v
+        #                 for k, v in t.items()
+        #             }
+        #             for t in labels
+        #         ]
+        #         nvtx.pop_range()
 
         batch_time += time.time() - start
 
@@ -588,6 +580,9 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
             logger.log_train_interval(
                 idx, epoch, len(inputs), loss, items_processed, train_time, batch_time
             )
+            idx += 1
+            if idx > 999:
+                batch_type = "end"
 
         elif batch_type == "valid":
 
@@ -595,7 +590,7 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
             val_time += time.time() - start
             logger.log_validation(val_loss, val_correct, val_acc, val_time)
 
-        elif batch_type == "end":
+        if batch_type == "end":
             train_epoch_acc, train_running_corrects = model.end_epoch()
             epoch_end_time = time.time() - epoch_start_time
             epoch_time = train_time + val_time + batch_time
@@ -614,6 +609,12 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
             )
             model.start_epoch(epoch + 1, args.train_loader_len)
             epoch_start_time = time.time()
+            epoch += 1
+            idx = 0
+            batch_type = "train"
+            if epoch > 2:
+                exit()
+
         # nvtx.push_range("task done")
         # q.queue.task_done()
         # nvtx.pop_range()
@@ -633,7 +634,7 @@ def main(args):
         random.seed(args.seed)
         torch.manual_seed(args.seed)
 
-    mp.set_sharing_strategy("file_descriptor")
+    mp.set_sharing_strategy("file_system")
     mp.set_start_method("spawn", force=True)
     manager = mp.Manager()
 

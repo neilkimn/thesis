@@ -379,7 +379,7 @@ class Logger(object):
 
 
 def producer(
-    loader, valid_loader, qs, qs_input, qs_labels, device, args, producer_alive
+    loader, valid_loader, qs, qs_init_cpu, qs_init_gpu, device, args, producer_alive
 ):
     pid = os.getpid()
     if args.seed:
@@ -400,93 +400,80 @@ def producer(
 
         if not args.evaluate_only:
 
-            input_slots = []
-            labels_slots = []
+            if epoch == 1:
+                input_slots = []
+                labels_slots = []
+
+                inputs = []
+                labels = []
+                for idx, (inputs_raw, labels_raw) in enumerate(loader):
+                    indices = None
+
+                    nvtx.push_range("producer memcpy")
+
+                    if idx < 20 and epoch == 1:
+                        # prepopulate queues with tensor pointers
+                        inputs.extend(list(image for image in inputs_raw))
+                        labels.extend([v for t in labels_raw for k, v in t.items()])
+
+                for input in inputs:
+                    for q in qs_init_cpu:
+                        q.queue.put(input)
+
+                for label in labels:
+                    for q in qs_init_cpu:
+                        q.queue.put(label)
+
+                for q in qs_init_gpu:
+                    inputs = [q.queue.get() for _ in range(40)]
+                    input_slots.append(inputs)
+                    labels = [q.queue.get() for _ in range(240)]
+                    labels_slots.append(labels)
+                # labels_slots.extend(labels)
 
             for idx, (inputs_raw, labels_raw) in enumerate(loader):
                 indices = None
 
-                nvtx.push_range("producer memcpy")
-
-                if idx < 20 and epoch == 1:
-                    # prepopulate queues with tensor pointers
-                    if args.gpu_prefetch:
-                        inputs = list(image.to(device) for image in inputs_raw)
-                    else:
-                        inputs = inputs_raw
-
-                    for input in inputs:
-                        for q in qs_input:
-                            q.queue.put(input)
-
-                    # input_slots.extend(inputs)
-
-                    if args.gpu_prefetch:
-                        labels = [
-                            v.to(device) if isinstance(v, torch.Tensor) else v
-                            for t in labels_raw
-                            for k, v in t.items()
-                        ]
-                    else:
-                        labels = [v for t in labels_raw for k, v in t.items()]
-
-                    for label in labels:
-                        for q in qs_labels:
-                            q.queue.put(label)
-
-                    # labels_slots.extend(labels)
-
-                nvtx.pop_range()
-
-                # if args.gpu_prefetch:
-                #     try:
-                #         input_slots[offset * 2][:] = inputs[0]
-                #         input_slots[offset * 2 + 1][:] = inputs[1]
-                #     except Exception as e:
-                #         pass
-
-                for q in qs:
+                for i, q in enumerate(qs):
                     offset = idx % 20
                     # TODO: these try excepts *have* to go. The issue is that not all images are the same size. We should
                     # ensure that everything is the same size
                     # For images, that would mean resizing everything to some standard
-                    if args.gpu_prefetch:
-                        try:
-                            input_slots[offset * 2][:] = inputs_raw[0]
-                            input_slots[offset * 2 + 1][:] = inputs_raw[1]
-                        except Exception as e:
-                            pass
+                    # if args.gpu_prefetch:
+                    # try:
+                    #     input_slots[i][offset * 2][:] = inputs_raw[0]
+                    #     input_slots[i][offset * 2 + 1][:] = inputs_raw[1]
+                    # except Exception as e:
+                    #     pass
 
-                        # labels = [v for t in labels_raw for k, v in t.items()]
+                    # labels = [v for t in labels_raw for k, v in t.items()]
 
-                        # TODO: these try excepts *have* to go. The issue is that not all labels are the same size. We should
-                        # ensure that everything is the same size
-                        # Bounding boxes are a serious issue, because as far as I know there can be multiple boxes per image.
-                        # Maybe check the literature what they do, or as interim we can limit the amount of boxes or something.
-                        """ for i in range(12):
-                            try:
-                                labels_slots[offset*12+i][:] = labels[i]
-                            except Exception as e:
-                                pass
-                                print(f"Index: {i}", e) """
-                        """ try:
-                            labels_slots[offset*12][:] = labels[0]
-                            labels_slots[offset*12+1][:] = labels[1]
-                            labels_slots[offset*12+2][:] = labels[2]
-                            labels_slots[offset*12+3][:] = labels[3]
-                            labels_slots[offset*12+4][:] = labels[4]
-                            labels_slots[offset*12+5][:] = labels[5]
-                            labels_slots[offset*12+6][:] = labels[6]
-                            labels_slots[offset*12+7][:] = labels[7]
-                            labels_slots[offset*12+8][:] = labels[8]
-                            labels_slots[offset*12+9][:] = labels[9]
-                            labels_slots[offset*12+10][:] = labels[10]
-                            labels_slots[offset*12+11][:] = labels[11]
-                        except Exception as e:
-                            pass """
-                    # TODO: attempt to slow it down, doesn't work
-                    # inputs_raw[0].to(device)
-                    # inputs_raw[1].to(device)
+                    # TODO: these try excepts *have* to go. The issue is that not all labels are the same size. We should
+                    # ensure that everything is the same size
+                    # Bounding boxes are a serious issue, because as far as I know there can be multiple boxes per image.
+                    # Maybe check the literature what they do, or as interim we can limit the amount of boxes or something.
+                    # """for i in range(12):
+                    # try:
+                    #     labels_slots[offset*12+i][:] = labels[i]
+                    # except Exception as e:
+                    #     pass
+                    #     print(f"Index: {i}", e)"""
+                    # """ try:
+                    #     labels_slots[offset*12][:] = labels[0]
+                    #     labels_slots[offset*12+1][:] = labels[1]
+                    #     labels_slots[offset*12+2][:] = labels[2]
+                    #     labels_slots[offset*12+3][:] = labels[3]
+                    #     labels_slots[offset*12+4][:] = labels[4]
+                    #     labels_slots[offset*12+5][:] = labels[5]
+                    #     labels_slots[offset*12+6][:] = labels[6]
+                    #     labels_slots[offset*12+7][:] = labels[7]
+                    #     labels_slots[offset*12+8][:] = labels[8]
+                    #     labels_slots[offset*12+9][:] = labels[9]
+                    #     labels_slots[offset*12+10][:] = labels[10]
+                    #     labels_slots[offset*12+11][:] = labels[11]
+                    # except Exception as e:
+                    #     pass """
+
                     q.queue.put((idx, epoch, "train", indices))
 
         # TODO: fix
@@ -506,7 +493,7 @@ def producer(
     producer_alive.wait()
 
 
-def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
+def worker(q, q_init_cpu, q_init_gpu, model, args, producer_alive, finished_workers):
     # affinity_mask = {i}
     # os.sched_setaffinity(0, affinity_mask)
     # torch.set_num_threads(1)
@@ -528,15 +515,21 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
 
     train_time, val_time, batch_time, queue_time, items_processed = 0, 0, 0, 0, 0
 
-    input_slots = [q_input.queue.get() for _ in range(40)]
-    labels_slots = [q_labels.queue.get() for _ in range(240)]
+    input_slots = [q_init_cpu.queue.get().clone().to(args.device) for _ in range(40)]
+    labels_slots = [q_init_cpu.queue.get().clone().to(args.device) for _ in range(240)]
+
+    for input in input_slots:
+        q_init_gpu.queue.put(input)
+
+    for labels in labels_slots:
+        q_init_gpu.queue.put(labels)
 
     while True:
         pid = os.getpid()
 
-        start = time.time()
         nvtx.push_range("worker get batch")
 
+        start = time.time()
         idx, epoch, batch_type, indices = q.queue.get()
         queue_time += time.time() - start
         offset = idx % 20
@@ -563,20 +556,21 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
 
         nvtx.pop_range()
 
-        if batch_type in ("train", "valid"):
-            if not args.gpu_prefetch:
-                nvtx.push_range("worker memcpy")
-                inputs = list(image.to(args.device) for image in inputs)
-                labels = [
-                    {
-                        k: v.to(args.device) if isinstance(v, torch.Tensor) else v
-                        for k, v in t.items()
-                    }
-                    for t in labels
-                ]
-                nvtx.pop_range()
+        # if batch_type in ("train", "valid"):
+        #     if not args.gpu_prefetch:
+        #         nvtx.push_range("worker memcpy")
+        #         inputs = list(image.to(args.device) for image in inputs)
+        #         labels = [
+        #             {
+        #                 k: v.to(args.device) if isinstance(v, torch.Tensor) else v
+        #                 for k, v in t.items()
+        #             }
+        #             for t in labels
+        #         ]
+        #         nvtx.pop_range()
 
-        batch_time += time.time() - start
+        if idx > 0:
+            batch_time += time.time() - start
 
         start = time.time()
         if batch_type == "train":
@@ -748,18 +742,18 @@ def main(args):
         train_models.append(trainer)
 
     queues = []
-    queues_input = []
-    queues_labels = []
+    queues_init_cpu = []
+    queues_init_gpu = []
     for idx in range(args.num_processes):
         q = JoinableQueue(maxsize=20)
-        q_input = JoinableQueue(maxsize=40)  # batch size 2, so 2*20
-        q_labels = JoinableQueue(maxsize=240)  # 6 dict elements per, so 20*40
+        q_init_cpu = JoinableQueue(maxsize=280)  # batch size 2, so 2*20
+        q_init_gpu = JoinableQueue(maxsize=280)  # 6 dict elements per, so 20*40
         queue = MyQueue(q, idx)
-        queue_input = MyQueue(q_input, idx)
-        queue_labels = MyQueue(q_labels, idx)
+        queue_init_cpu = MyQueue(q_init_cpu, idx)
+        queue_init_gpu = MyQueue(q_init_gpu, idx)
         queues.append(queue)
-        queues_input.append(queue_input)
-        queues_labels.append(queue_labels)
+        queues_init_cpu.append(queue_init_cpu)
+        queues_init_gpu.append(queue_init_gpu)
 
     producer_alive = mp.Event()
     producers = []
@@ -787,8 +781,8 @@ def main(args):
                         data_loader,
                         data_loader_test,
                         [queues[i]],
-                        [queues_input[i]],
-                        [queues_labels[i]],
+                        [queues_init_cpu[i]],
+                        [queues_init_gpu[i]],
                         device,
                         args,
                         producer_alive,
@@ -805,8 +799,8 @@ def main(args):
                     data_loader,
                     data_loader_test,
                     queues,
-                    queues_input,
-                    queues_labels,
+                    queues_init_cpu,
+                    queues_init_gpu,
                     device,
                     args,
                     producer_alive,
@@ -827,8 +821,8 @@ def main(args):
             args=(
                 (
                     queues[i],
-                    queues_input[i],
-                    queues_labels[i],
+                    queues_init_cpu[i],
+                    queues_init_gpu[i],
                     train_models[i],
                     args,
                     producer_alive,
