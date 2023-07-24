@@ -104,6 +104,11 @@ def get_args_parser(add_help=True):
         "--gpu-prefetch", action="store_true", help="whether to do GPU prefetching"
     )
     parser.add_argument(
+        "--only-first",
+        action="store_true",
+        help="only run first data copy (gpu prefetch disabled)",
+    )
+    parser.add_argument(
         "--producer-per-worker",
         action="store_true",
         help="whether to have a producer for each worker",
@@ -438,7 +443,7 @@ def producer(
 
                 nvtx.pop_range()
 
-                if args.gpu_prefetch:
+                if (not args.only_first) or idx == 0:
                     try:
                         input_slots[offset * 2][:] = inputs[0]
                         input_slots[offset * 2 + 1][:] = inputs[1]
@@ -539,42 +544,45 @@ def worker(q, q_input, q_labels, model, args, producer_alive, finished_workers):
 
         idx, epoch, batch_type, indices = q.queue.get()
         queue_time += time.time() - start
-        offset = idx % 20
-        inputs = input_slots[offset * 2 : offset * 2 + 2]
 
-        labels = [
-            {
-                "boxes": labels_slots[offset * 12],
-                "labels": labels_slots[offset * 12 + 1],
-                "masks": labels_slots[offset * 12 + 2],
-                "image_id": labels_slots[offset * 12 + 3],
-                "area": labels_slots[offset * 12 + 4],
-                "iscrowd": labels_slots[offset * 12 + 5],
-            },
-            {
-                "boxes": labels_slots[offset * 12 + 6],
-                "labels": labels_slots[offset * 12 + 7],
-                "masks": labels_slots[offset * 12 + 8],
-                "image_id": labels_slots[offset * 12 + 9],
-                "area": labels_slots[offset * 12 + 10],
-                "iscrowd": labels_slots[offset * 12 + 11],
-            },
-        ]
+        if (not args.only_first) or idx == 0:
+            offset = idx % 20
+            inputs = input_slots[offset * 2 : offset * 2 + 2]
+
+            labels = [
+                {
+                    "boxes": labels_slots[offset * 12],
+                    "labels": labels_slots[offset * 12 + 1],
+                    "masks": labels_slots[offset * 12 + 2],
+                    "image_id": labels_slots[offset * 12 + 3],
+                    "area": labels_slots[offset * 12 + 4],
+                    "iscrowd": labels_slots[offset * 12 + 5],
+                },
+                {
+                    "boxes": labels_slots[offset * 12 + 6],
+                    "labels": labels_slots[offset * 12 + 7],
+                    "masks": labels_slots[offset * 12 + 8],
+                    "image_id": labels_slots[offset * 12 + 9],
+                    "area": labels_slots[offset * 12 + 10],
+                    "iscrowd": labels_slots[offset * 12 + 11],
+                },
+            ]
 
         nvtx.pop_range()
 
         if batch_type in ("train", "valid"):
             if not args.gpu_prefetch:
-                nvtx.push_range("worker memcpy")
-                inputs = list(image.to(args.device) for image in inputs)
-                labels = [
-                    {
-                        k: v.to(args.device) if isinstance(v, torch.Tensor) else v
-                        for k, v in t.items()
-                    }
-                    for t in labels
-                ]
-                nvtx.pop_range()
+                if (not args.only_first) or idx == 0:
+                    nvtx.push_range("worker memcpy")
+                    inputs = list(image.to(args.device) for image in inputs)
+                    labels = [
+                        {
+                            k: v.to(args.device) if isinstance(v, torch.Tensor) else v
+                            for k, v in t.items()
+                        }
+                        for t in labels
+                    ]
+                    nvtx.pop_range()
 
         batch_time += time.time() - start
 
